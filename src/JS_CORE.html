@@ -1,0 +1,210 @@
+<script>
+    /**
+     * ==========================================
+     * MÓDULO CORE
+     * Variables Globales y Utilidades Genéricas
+     * ==========================================
+     */
+
+    // --- Variables de Estado Global ---
+    let currentStep = 1;
+    let procesoBloqueado = false;
+    let isBatchMode = false;
+    let batchList = [];
+
+    // --- Utilidades Visuales ---
+    function initAutoExpandTextareas() {
+        const textareas = document.querySelectorAll('textarea.auto-expand');
+        textareas.forEach(textarea => {
+            textarea.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight) + 'px';
+            });
+        });
+        // Ajustar inicialmente
+        adjustAutoExpandTextareas();
+    }
+
+    function adjustAutoExpandTextareas() {
+        const textareas = document.querySelectorAll('textarea.auto-expand');
+        textareas.forEach(textarea => {
+            if (textarea.offsetParent !== null) { // Solo si el elemento es actualmente visible en la pantalla
+                textarea.style.height = 'auto';
+                textarea.style.height = (textarea.scrollHeight) + 'px';
+            }
+        });
+    }
+
+    let loaderIntervalId = null;
+    function toggleLoader(show, text = "Cargando...") {
+        const el = document.getElementById('loader');
+        const textEl = document.getElementById('loader-text');
+        
+        if (loaderIntervalId) {
+            clearInterval(loaderIntervalId);
+            loaderIntervalId = null;
+        }
+
+        if (show) {
+            textEl.innerText = text;
+            el.classList.remove('d-none');
+
+            // Mensajes rotativos de carga para mitigar la ansiedad durante esperas de concurrencia
+            const messages = [
+                text,
+                "Conectando con la base de datos segura...",
+                "El servidor Cloud Run está procesando su solicitud...",
+                "Estamos experimentando alta concurrencia de carga, por favor tenga paciencia...",
+                "Casi listo, resguardando archivos cifrados en Google Drive...",
+                "Por favor, NO cierre esta pestaña ni presione F5 para evitar duplicados..."
+            ];
+            let index = 0;
+            loaderIntervalId = setInterval(() => {
+                index = (index + 1) % messages.length;
+                textEl.innerText = messages[index];
+            }, 8000);
+        } else {
+            el.classList.add('d-none');
+        }
+    }
+    // --- Manejo de Fechas ---
+
+    function initDate() {
+        const meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+        const sel = document.getElementById('mes');
+        if (!sel) return;
+
+        sel.innerHTML = "";
+        meses.forEach(m => { let o = document.createElement('option'); o.text = m; o.value = m; sel.add(o); });
+
+        // Seleccionar mes actual
+        try {
+            sel.value = meses[new Date().getMonth()];
+            // BLOQUEAR MES POR DEFECTO PARA EVITAR ERRORES
+            sel.disabled = true;
+        } catch (e) { }
+
+        // Calcular fechas de inicio y fin inmediatamente
+        actualizarFechasPorMes();
+    }
+
+    function actualizarFechasPorMes() {
+        const mesNombre = document.getElementById('mes').value;
+        const anioActual = new Date().getFullYear();
+        let anio = anioActual;
+
+        // Ajuste si estamos en Enero y seleccionamos Diciembre (asume año anterior)
+        if (mesNombre === "DICIEMBRE" && new Date().getMonth() === 0) {
+            anio = anio - 1;
+        }
+
+        const meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+        const mesIndex = meses.indexOf(mesNombre);
+
+        if (mesIndex > -1) {
+            const primerDia = new Date(anio, mesIndex, 1);
+            const ultimoDia = new Date(anio, mesIndex + 1, 0); // Día 0 del siguiente mes es el último del actual
+
+            const options = { day: '2-digit', month: '2-digit', year: 'numeric' };
+            // Asignar a los inputs
+            document.getElementById('periodoMes').value = primerDia.toLocaleDateString('es-CL', options);
+            document.getElementById('periodoFinMes').value = ultimoDia.toLocaleDateString('es-CL', options);
+
+            // REINICIAR ESTADO DE CANDADOS SI CAMBIA EL MES (volver a bloquear)
+            // Esto es opcional, pero buena práctica si el mes cambiara.
+            // Como el mes está bloqueado, esto solo aplica en la carga inicial.
+            lockDateInput('periodoMes');
+            lockDateInput('periodoFinMes');
+        }
+    }
+    function formatearRutVisual(rut) {
+        if (!rut) return "";
+        let r = rut.trim();
+        // Si empieza con 9.xxx o similar (menos de 12 chars) y es numérico
+        // Ejemplo: 9.347.229-4 (11 chars) -> Agrega el 0 al inicio
+        if (/^[1-9]\./.test(r) && r.length < 12) {
+            return "0" + r;
+        }
+        return r;
+    }
+    function bloquearMesesCompletados(mesesBloqueados) {
+        const sel = document.getElementById('mes');
+        const options = sel.options;
+
+        // Restaurar primero (aunque ahora por defecto está disabled, mantenemos lógica visual)
+        for (let i = 0; i < options.length; i++) {
+            options[i].innerText = options[i].value.replace("✅ ", "").replace(" (Entregado)", "");
+        }
+
+        if (!mesesBloqueados || mesesBloqueados.length === 0) return;
+
+        for (let i = 0; i < options.length; i++) {
+            if (mesesBloqueados.includes(options[i].value)) {
+                // Marca visual aunque esté deshabilitado el select general
+                options[i].innerText = "✅ " + options[i].value + " (Entregado)";
+            }
+        }
+    }
+
+    // --- NUEVA FUNCIÓN: CONTROL DEL CANDADO ---
+    function toggleDateLock(inputId, btn) {
+        const input = document.getElementById(inputId);
+        const icon = btn.querySelector('i');
+
+        if (input.readOnly) {
+            // DESBLOQUEAR
+            input.readOnly = false;
+            input.classList.remove('form-control-plaintext');
+            input.classList.add('form-control', 'bg-white', 'border-warning');
+            icon.classList.replace('bi-lock-fill', 'bi-unlock-fill');
+            btn.classList.replace('text-secondary', 'text-warning');
+            input.focus();
+        } else {
+            // BLOQUEAR
+            lockDateInput(inputId);
+        }
+    }
+
+    function lockDateInput(inputId) {
+        const input = document.getElementById(inputId);
+        // Buscar el botón asociado (hermano en el DOM)
+        const btn = input.nextElementSibling;
+        if (!btn) return;
+        const icon = btn.querySelector('i');
+
+        input.readOnly = true;
+        input.classList.add('form-control-plaintext');
+        input.classList.remove('form-control', 'bg-white', 'border-warning');
+
+        if (icon) {
+            icon.classList.replace('bi-unlock-fill', 'bi-lock-fill');
+            btn.classList.replace('text-warning', 'text-secondary');
+        }
+    }
+
+    /**
+     * Carga de forma asíncrona los datos del Spreadsheet conectado en el footer.
+     */
+    function cargarInfoPlanillaConectada() {
+        const linkEl = document.getElementById('sheet-link');
+        if (!linkEl) return;
+
+        google.script.run
+            .withSuccessHandler(function(info) {
+                if (info && info.nombre) {
+                    linkEl.innerText = info.nombre;
+                    linkEl.href = info.url;
+                    linkEl.title = "Spreadsheet ID: " + info.id;
+                } else {
+                    linkEl.innerText = "No se pudo identificar la planilla";
+                    linkEl.href = "#";
+                }
+            })
+            .withFailureHandler(function(err) {
+                console.error("Error al cargar la información del Spreadsheet:", err);
+                linkEl.innerText = "Error al conectar con la base de datos";
+                linkEl.href = "#";
+            })
+            .obtenerInfoSpreadsheetConectado();
+    }
+</script>

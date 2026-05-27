@@ -1,0 +1,24 @@
+{
+  "name": "informes2026",
+  "version": "1.0.0",
+  "description": "Gestión de Informes 2026 - Muni Coquimbo",
+  "main": "Datos.js",
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.js",
+    "push": "npm run build && clasp push",
+    "push:force": "npm run build && clasp push -f",
+    "pull": "clasp pull",
+    "open": "clasp open-script",
+    "logs": "clasp logs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@google/clasp": "^3.2.0",
+    "@types/google-apps-script": "^2.0.8",
+    "typescript": "^5.9.3"
+  }
+}

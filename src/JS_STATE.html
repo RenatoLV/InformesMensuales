@@ -1,0 +1,226 @@
+<script>
+/**
+ * ==========================================
+ * MÓDULO STATE & ACTIONS (CONTROLADOR PRINCIPAL - SIMPLIFICADO)
+ * ==========================================
+ */
+
+// --- FUNCIÓN DE INICIO ---
+function initAppState() {
+    const savedUser = localStorage.getItem('app_session_user');
+    const isLocked = localStorage.getItem('app_session_locked');
+
+    if (savedUser) {
+        try {
+            const userData = JSON.parse(savedUser);
+            
+            // --- RECUPERACIÓN MODO INDIVIDUAL ---
+            activarVistaLogeado(userData, false); 
+            llenarFormulario(userData); 
+            
+            // Lógica de bloqueo individual
+            if (isLocked === 'true') {
+                procesoBloqueado = true;
+                safeClassRemove('locked-message', 'd-none');
+                const savedLinks = localStorage.getItem('app_session_links');
+                
+                if (savedLinks) {
+                    const links = JSON.parse(savedLinks);
+                    if (typeof configurarPaso3Individual === 'function') {
+                        configurarPaso3Individual(links);
+                    }
+                    setTimeout(() => {
+                        goToStep(3);
+                        console.log("Sesión individual restaurada en Paso 3");
+                    }, 200);
+                } else {
+                    // Caso raro: Bloqueado pero sin links. Liberar.
+                    goToStep(2);
+                }
+            } else {
+                goToStep(2);
+            }
+        } catch(e) {
+            console.error("Error crítico al restaurar sesión:", e);
+            limpiarStorageCompleto();
+            location.reload();
+        }
+    }
+}
+
+// --- NAVEGACIÓN ENTRE PASOS ---
+function goToStep(step) {
+    // GUARDIA: Impedir volver atrás si ya hay documentos generados (Bloqueo lógico)
+    const isLocked = localStorage.getItem('app_session_locked') === 'true';
+    
+    // Solo bloqueamos retroceder si vamos a pasos anteriores al 3 (1 o 2)
+    if (isLocked && step < 3) {
+        if(typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Proceso en Curso',
+                text: 'Ya se generaron documentos. Para evitar duplicidad o errores, debe finalizar la carga de los archivos actuales.',
+                confirmButtonText: 'Entendido'
+            });
+        } else {
+            alert("⚠️ ACCIÓN BLOQUEADA\n\nYa generó los documentos. Debe subir los archivos firmados para finalizar.");
+        }
+        goToStep(3);
+        return; 
+    }
+   
+    // Validación básica Paso 1 -> 2 (Identificación requerida)
+    if (step > 1 && document.getElementById('rutFull') && document.getElementById('rutFull').value === "") {
+        if (!localStorage.getItem('app_session_user')) {
+             return alert("Por favor, identifíquese primero en el Paso 1.");
+        }
+    }
+
+    // Ocultar todos, mostrar actual
+    document.querySelectorAll('.step-content').forEach(el => {
+        el.classList.remove('active'); 
+        el.classList.add('d-none');    
+    });
+   
+    const targetEl = document.getElementById(`step-${step}-content`);
+    if (targetEl) {
+        targetEl.classList.remove('d-none'); 
+        setTimeout(() => targetEl.classList.add('active'), 10); 
+    }
+   
+    updateSidebarStepper(step);
+    currentStep = step;
+    window.scrollTo(0,0);
+}
+
+function updateSidebarStepper(step) {
+    document.querySelectorAll('.step-item-sidebar').forEach(el => {
+        el.classList.remove('active');
+        el.classList.remove('completed');
+    });
+
+    if(step === 1) safeClassAdd('step-ind-1', 'active');
+    if(step === 2) {
+        safeClassAdd('step-ind-1', 'completed');
+        safeClassAdd('step-ind-2', 'active');
+    }
+    if(step === 3) {
+        safeClassAdd('step-ind-1', 'completed');
+        safeClassAdd('step-ind-2', 'completed');
+        safeClassAdd('step-ind-3', 'active');
+    }
+}
+
+// --- UI HELPERS ---
+function safeSetText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = text;
+}
+
+function safeClassRemove(id, className) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove(className);
+}
+
+function safeClassAdd(id, className) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add(className);
+}
+
+// --- VISTA LOGUEADO ---
+function activarVistaLogeado(data, saveToStorage = true) {
+    const sidebar = document.getElementById('layout-sidebar');
+    const main = document.getElementById('layout-main');
+    const btnSalir = document.getElementById('btnSalir');
+
+    if(sidebar) sidebar.classList.remove('d-none');
+    
+    if(main) {
+        main.classList.remove('col-12');    
+        main.classList.add('col-lg-9');
+    }
+    
+    if(btnSalir) btnSalir.classList.remove('d-none');
+
+    // Manejo robusto del nombre a mostrar
+    let displayNombre = "Usuario";
+    if (data.nombre) {
+        let partes = data.nombre.split(" ");
+        displayNombre = partes[0] + " " + (partes[2] || "");
+    }
+    
+    safeSetText('sidebarNombre', displayNombre);
+    safeSetText('sidebarRut', data.rut || "");
+    safeSetText('sidebarPrograma', data.origen || (data.programa || "HONORARIOS"));
+    
+    const elDireccion = document.getElementById('sidebarDireccion');
+    if(elDireccion) {
+        elDireccion.innerText = data.direccion || "Sin Unidad Asignada";
+        elDireccion.title = data.direccion || ""; 
+    }
+
+    if(saveToStorage) { 
+        localStorage.setItem('app_session_user', JSON.stringify(data));
+    }
+}
+
+function intentarSalir() {
+    let msg = "¿Desea cerrar la sesión?";
+    if(localStorage.getItem('app_session_locked') === 'true') {
+        msg = "⚠️ ADVERTENCIA: Documento generado pero no subido.\n\nSi sale ahora, deberá generar el documento nuevamente.";
+    }
+    if(!confirm(msg)) return;
+    
+    limpiarStorageCompleto();
+    resetearAplicacionCompleta(); 
+}
+
+function resetearAplicacionCompleta() {
+    currentStep = 1;
+    procesoBloqueado = false;
+    isBatchMode = false;
+
+    localStorage.clear(); 
+
+    const idsToClear = ['rutSearch', 'rutFull', 'nombre', 'actividades', 'fono', 'correo', 'archivoFirmadoSingle'];
+    idsToClear.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = "";
+    });
+    
+    safeClassAdd('layout-sidebar', 'd-none');
+    safeClassAdd('btnSalir', 'd-none');
+    
+    const main = document.getElementById('layout-main');
+    if(main) {
+        main.classList.remove('col-lg-9');
+        main.classList.add('col-12');
+    }
+
+    goToStep(1);
+}
+
+function limpiarStorageCompleto() {
+    localStorage.removeItem('app_session_user');
+    localStorage.removeItem('app_session_locked');
+    localStorage.removeItem('app_session_links');
+}
+
+function configurarPaso3Individual(links) {
+    if(!links) return;
+    
+    const btnRemu = document.getElementById('btnDescargaRemu');
+    const btnTransp = document.getElementById('btnDescargaTransp');
+    
+    const linkR = links.remu || links.urlRemu || "#";
+    const linkT = links.transp || links.urlTransp || "#";
+    
+    if(btnRemu) btnRemu.href = linkR;
+    if(btnTransp) btnTransp.href = linkT;
+
+    const uiSingle = document.getElementById('upload-ui-single');
+    if(uiSingle) uiSingle.classList.remove('d-none');
+
+    goToStep(3);
+}
+</script>

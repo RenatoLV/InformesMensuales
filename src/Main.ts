@@ -31,3 +31,25 @@ function doGet() {
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
+
+/**
+ * Obtiene el nombre, URL e ID del Spreadsheet de base de datos conectado.
+ */
+function obtenerInfoSpreadsheetConectado() {
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.ID_SPREADSHEET);
+    const nombreHoja = obtenerNombreHojaMasReciente(ss);
+    return {
+      nombre: ss.getName() + " | Pestaña: " + nombreHoja,
+      url: ss.getUrl(),
+      id: CONFIG.ID_SPREADSHEET
+    };
+  } catch (e) {
+    return {
+      nombre: "Planilla Desconocida (Sin acceso)",
+      url: "#",
+      id: CONFIG.ID_SPREADSHEET,
+      error: e.toString()
+    };
+  }
+}

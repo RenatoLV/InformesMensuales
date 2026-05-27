@@ -289,4 +289,89 @@ body {
 .loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 51, 102, 0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
 .upload-area { cursor: pointer; transition: 0.3s; border: 2px dashed #cbd5e1; background-color: #f8fafc; }
 .upload-area:hover { background-color: #eff6ff; border-color: var(--primary-color); }
+
+/* =========================================
+   6. WIZARD INTERNO DEL FORMULARIO
+   ========================================= */
+.wizard-header { position: relative; margin-bottom: 2.5rem; }
+.wizard-progress-container { position: relative; width: 100%; }
+.wizard-progress-container .progress {
+    position: absolute;
+    top: 20px; /* ALINEACIÓN HORIZONTAL PERFECTA CON EL CENTRO DEL CÍRCULO (40px / 2) */
+    left: 12.5%; /* EMPIEZA EXACTAMENTE EN EL CENTRO DEL PRIMER PASO (25% / 2) */
+    right: 12.5%; /* TERMINA EXACTAMENTE EN EL CENTRO DEL ÚLTIMO PASO */
+    height: 4px !important;
+    background-color: #e2e8f0;
+    transform: translateY(-50%);
+    z-index: 1;
+    border-radius: 2px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+.wizard-progress-bar {
+    height: 100%;
+    background-color: var(--primary-color);
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.wizard-step-indicator {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: transparent;
+    width: 25%; /* CADA PASO TOMA EL 25% DEL ANCHO */
+    flex-shrink: 0;
+}
+.wizard-step-indicator .step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: white; /* FONDO BLANCO SÓLIDO PARA TAPAR LA LÍNEA DETRÁS */
+    border: 3px solid #e2e8f0;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.1rem;
+    transition: all 0.3s ease;
+}
+.wizard-step-indicator.active .step-circle {
+    border-color: var(--primary-color);
+    background-color: var(--primary-color);
+    color: white;
+    box-shadow: 0 0 0 5px rgba(0, 51, 102, 0.15);
+}
+.wizard-step-indicator.completed .step-circle {
+    border-color: #10b981;
+    background-color: #10b981;
+    color: white;
+}
+.wizard-step-indicator .step-text {
+    margin-top: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+    white-space: nowrap;
+}
+.wizard-step-indicator.active .step-text { color: var(--primary-color); }
+.wizard-step-indicator.completed .step-text { color: #10b981; }
+
+.form-wizard-step { display: none; animation: fadeIn 0.4s ease-in-out forwards; }
+.form-wizard-step.active { display: block; }
+
+/* Textareas auto-expandibles */
+textarea.auto-expand {
+    resize: none;
+    overflow-y: hidden;
+    min-height: 100px;
+    transition: height 0.15s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>

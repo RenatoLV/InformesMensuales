@@ -1,0 +1,13 @@
+{
+  "name": "muni-coquimbo-pdf-api",
+  "version": "1.0.0",
+  "description": "API Serverless para generación rápida de informes de honorarios (Muni Coquimbo)",
+  "main": "index.js",
+  "scripts": {
+    "start": "functions-framework --target=generarPDF"
+  },
+  "dependencies": {
+        "express": "^4.18.2",
+    "googleapis": "^144.0.0"
+  }
+}

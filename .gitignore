@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+api-server/informestransparenciaactiva-c8ecfb1b9e79.json
+*.bak
+*.log
+.clasp.json

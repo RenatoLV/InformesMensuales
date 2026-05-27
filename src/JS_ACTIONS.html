@@ -1,0 +1,1096 @@
+<script>
+    /**
+     * ==========================================
+     * MÓDULO ACTIONS (GENERACIÓN CON PERSISTENCIA)
+     * ==========================================
+     */
+    let isViendoLista = false;
+    let isModoSinGeneracion = false;
+
+    function guardarEstadoLote() {
+        // Guarda el estado actual en el navegador por si hay un crash o F5
+        localStorage.setItem('app_session_batch_list', JSON.stringify(batchList));
+        localStorage.setItem('app_session_modo_singeneracion', isModoSinGeneracion ? 'true' : 'false');
+        // El candado se activa cuando empezamos a procesar
+        if (batchList.some(b => b.status === "GENERADO" || b.status === "PROCESANDO" || b.status === "PENDIENTE_DUAL" || b.status.startsWith("FINALIZADO_PARCIAL"))) {
+            localStorage.setItem('app_session_locked', 'true');
+        }
+    }
+
+    function decidirGeneracion(e) {
+        if (e) e.preventDefault();
+
+        // 1. Obtener valores y limpiar espacios vacíos
+        const act = document.getElementById('actividades').value.trim();
+        const fono = document.getElementById('fono').value.trim();
+        const mail = document.getElementById('correo').value.trim();
+        const func = document.getElementById('funcionVisual').value.trim();
+
+        // Jefatura
+        const jefeNom = document.getElementById('inputJefaturaNombre').value.trim();
+        const jefeCar = document.getElementById('inputCargo').value.trim();
+        const jefeDir = document.getElementById('inputDirJefatura').value.trim();
+
+        // 2. Validaciones
+        let errores = [];
+        if (!fono || fono.length < 5) errores.push("- El campo TELÉFONO es obligatorio.");
+        if (!mail || !mail.includes('@')) errores.push("- El campo CORREO ELECTRÓNICO es obligatorio.");
+        if (!func || func.length < 3) errores.push("- Debe describir su FUNCIÓN (CONTRATO).");
+        if (!act || act.length < 10) errores.push("- Debe detallar sus Actividades y Avances.");
+        if (!jefeNom) errores.push("- El campo Nombre Jefatura es obligatorio.");
+        if (!jefeCar) errores.push("- El campo Cargo de Jefatura es obligatorio.");
+        if (!jefeDir) errores.push("- El campo Dirección / Departamento / Oficina de Jefatura es obligatorio.");
+
+        if (errores.length > 0) {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Faltan Datos',
+                    html: `<div class="text-start">Favor completar los siguientes campos obligatorios:<br><br>${errores.join('<br>')}</div>`
+                });
+            } else {
+                alert("⚠️ Faltan Datos\n\nFavor completar los siguientes campos obligatorios:\n" + errores.join("\n"));
+            }
+            return;
+        }
+
+        if (isBatchMode) {
+            generarLoteSecuencial();
+        } else {
+            generarIndividual();
+        }
+    }
+
+    function continuarSinGeneracion(e) {
+        if (e) e.preventDefault();
+
+        const act = document.getElementById('actividades').value.trim();
+        const fono = document.getElementById('fono').value.trim();
+        const mail = document.getElementById('correo').value.trim();
+        const func = document.getElementById('funcionVisual').value.trim();
+
+        // Jefatura
+        const jefeNom = document.getElementById('inputJefaturaNombre').value.trim();
+        const jefeCar = document.getElementById('inputCargo').value.trim();
+        const jefeDir = document.getElementById('inputDirJefatura').value.trim();
+
+        let errores = [];
+        if (!fono || fono.length < 5) errores.push("- El campo TELÉFONO es obligatorio.");
+        if (!mail || !mail.includes('@')) errores.push("- El campo CORREO ELECTRÓNICO es obligatorio.");
+        if (!func || func.length < 3) errores.push("- Debe describir su FUNCIÓN (CONTRATO).");
+        if (!act || act.length < 10) errores.push("- Debe detallar sus Actividades y Avances.");
+
+        if (!jefeNom) errores.push("- El campo Nombre Jefatura es obligatorio.");
+        if (!jefeCar) errores.push("- El campo Cargo de Jefatura es obligatorio.");
+        if (!jefeDir) errores.push("- El campo Dirección / Departamento / Oficina de Jefatura es obligatorio.");
+
+        if (errores.length > 0) {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Faltan Datos',
+                    html: `<div class="text-start">Favor completar los siguientes campos obligatorios:<br><br>${errores.join('<br>')}</div>`
+                });
+            } else {
+                alert("⚠️ Faltan Datos\n\nFavor completar los siguientes campos obligatorios:\n" + errores.join("\n"));
+            }
+            return;
+        }
+
+        const msg = "ESTA OPCION HARA QUE PASES DIRECTAMENTE AL PASO 3 DE ADJUNTADO SIN GENERAR EL TACHADO DEBERAS ADJUNTAR TANTO TRANSPARENCIA COMO EL INFORME CON BOLETA EMITIDA EN EL SII ESTAS SEGURO DE CONTINUAR EN ESTE FORMATO";
+
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: '¿Estás seguro?',
+                text: msg,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Sí, continuar',
+                cancelButtonText: 'Cancelar'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    ejecutarContinuarSinGeneracion();
+                }
+            });
+        } else {
+            if (confirm(msg)) {
+                ejecutarContinuarSinGeneracion();
+            }
+        }
+    }
+
+    function ejecutarContinuarSinGeneracion() {
+        isModoSinGeneracion = true;
+        localStorage.setItem('app_session_modo_singeneracion', 'true');
+        localStorage.setItem('app_session_locked', 'true');
+        procesoBloqueado = true;
+        document.getElementById('locked-message').classList.remove('d-none');
+
+        if (isBatchMode) {
+            batchList.forEach(b => {
+                if (b.encontrado && b.status !== "FINALIZADO") {
+                    b.status = "PENDIENTE_DUAL";
+                    b.uploadedTransp = false;
+                    b.uploadedRemu = false;
+                }
+            });
+            guardarEstadoLote();
+            configurarPaso3Lote();
+        } else {
+            configurarPaso3IndividualDual();
+            goToStep(3);
+        }
+    }
+
+    /**
+     * GENERACIÓN MASIVA ROBUSTA
+     * 1. Guarda todo en Sheets como "SIN GENERAR".
+     * 2. Itera generando PDFs y actualizando a "GENERADO".
+     */
+    async function callWithRetry(fn, ...args) {
+        let lastError;
+        for (let i = 0; i < 3; i++) {
+            try {
+                return await new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)[fn](...args);
+                });
+            } catch (e) {
+                lastError = e;
+                console.warn(`Intento ${i + 1} fallido para ${fn}: ${e}`);
+                if (i < 2) await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Espera exponencial
+            }
+        }
+        throw lastError;
+    }
+
+    async function generarLoteSecuencial() {
+        const commonData = recopilarDatos();
+
+        // 1. FILTRAR Y VALIDAR
+        let procesables = batchList.filter(x => x.encontrado);
+        if (procesables.length === 0) return alert("No hay RUTs válidos para procesar.");
+
+        // 2. INICIALIZAR UI
+        const progContainer = document.getElementById('batch-progress-container');
+        const progBar = document.getElementById('batch-progress-bar');
+        const progText = document.getElementById('progress-text');
+        const btnGen = document.getElementById('btnGenerar');
+
+        progContainer.classList.remove('d-none');
+        btnGen.disabled = true;
+        btnGen.innerText = "Inicializando base de datos...";
+
+        // 3. CALCULAR AÑO Y PREPARAR DATOS
+        const fechaActual = new Date();
+        let anioProceso = fechaActual.getFullYear();
+        if (commonData.mesSeleccionado === "DICIEMBRE" && fechaActual.getMonth() === 0) {
+            anioProceso--;
+        }
+
+        const listaParaInicializar = procesables.map(u => {
+            let d = { ...commonData };
+            d.rut = u.rut;
+            d.nombre = u.nombre;
+            d.anio = anioProceso;
+            d.funcion = (u.funcion && u.funcion.length > 5) ? u.funcion : commonData.funcion;
+            d.programa = (u.programa && u.programa.length > 2) ? u.programa : (commonData.programa || "HONORARIOS");
+            if (u.email) d.correo = u.email;
+            if (u.direccion) d.direccion = u.direccion;
+            return d;
+        });
+
+        // 4. ANCLAJE Y GUARDADO DE ESTADO INICIAL
+        try {
+            await callWithRetry('inicializarLoteEnSheet', listaParaInicializar);
+
+            // **LOCK 1**: Ya inicializamos, marcar localmente como "En Proceso" y bloquear sesión
+            batchList.forEach(b => { if (b.encontrado && b.status === "SIN GENERAR") b.status = "EN COLA"; });
+            localStorage.setItem('app_session_locked', 'true');
+            guardarEstadoLote();
+
+        } catch (e) {
+            alert("Error de red inicializando: " + e);
+            btnGen.disabled = false;
+            btnGen.innerText = "REINTENTAR"; // Mejora de UX del Código 1
+            return;
+        }
+
+        btnGen.innerText = "Procesando...";
+        renderBatchStatusTable();
+
+        // 5. FILTRAR PENDIENTES (Para permitir reanudación si se cortó el proceso)
+        const pendientes = listaParaInicializar.filter(item => {
+            const local = batchList.find(b => b.rut === item.rut);
+            return local && local.status !== "GENERADO" && local.status !== "FINALIZADO";
+        });
+
+        if (pendientes.length === 0) {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ icon: 'info', title: 'Listo', text: 'Todos los documentos ya estaban generados.' });
+            }
+            configurarPaso3Lote();
+            return;
+        }
+
+        // 6. GENERACIÓN CONCURRENTE (Worker Pool)
+        let total = pendientes.length;
+        let completados = 0;
+
+        // Máximo 3 peticiones simultáneas. Apps Script soporta más, pero el navegador limita 
+        // las conexiones TCP. 3 es el punto óptimo para evitar cuellos de botella y fallos.
+        const CONCURRENCY_LIMIT = 3;
+        const queue = [...pendientes];
+
+        const processNext = async () => {
+            if (queue.length === 0) return;
+
+            const currentItem = queue.shift();
+            const userLocal = batchList.find(b => b.rut === currentItem.rut);
+
+            if (userLocal) {
+                userLocal.status = "PROCESANDO";
+                actualizarFilaEstado(userLocal.rut, "PROCESANDO");
+            }
+
+            try {
+                const result = await callWithRetry('procesarItemIndividualLote', currentItem);
+
+                if (result.exito && userLocal) {
+                    userLocal.status = "GENERADO";
+                    userLocal.links = result.links;
+                    actualizarFilaEstado(userLocal.rut, "GENERADO");
+                } else if (userLocal) {
+                    userLocal.status = "ERROR";
+                    actualizarFilaEstado(userLocal.rut, "ERROR");
+                    console.error(`Error backend en RUT ${userLocal.rut}:`, result.error); // Log extraído del Código 1
+                }
+            } catch (err) {
+                if (userLocal) {
+                    userLocal.status = "FALLO RED";
+                    actualizarFilaEstado(userLocal.rut, "FALLO RED");
+                    console.error(`Fallo de red en RUT ${userLocal.rut}:`, err);
+                }
+            } finally {
+                completados++;
+                let pct = Math.round((completados / total) * 100);
+
+                // Solo actualiza la barra si no se está viendo la lista (optimización del DOM)
+                if (typeof isViendoLista !== 'undefined' && !isViendoLista) {
+                    progBar.style.width = pct + "%";
+                    progText.innerText = `Procesando ${completados} de ${total}`;
+                }
+
+                // **LOCK 2**: Progreso incremental (Vital para no perder datos si el usuario cierra la pestaña)
+                guardarEstadoLote();
+
+                await processNext();
+            }
+        };
+
+        // Iniciar Workers
+        const promises = [];
+        for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
+            promises.push(processNext());
+        }
+        await Promise.all(promises);
+
+        // **LOCK 3**: Guardado Final
+        guardarEstadoLote();
+
+        // Notificación de éxito combinada
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({ icon: 'success', title: '¡Proceso masivo finalizado!', text: 'Pasando a carga de documentos...', timer: 1500, showConfirmButton: false });
+        } else {
+            alert("✅ Proceso masivo finalizado.");
+        }
+
+        setTimeout(() => {
+            configurarPaso3Lote();
+        }, 1000);
+    }
+
+    // --- FUNCIÓN QUE FALTABA (UI TABLE UPDATE) ---
+    function renderBatchStatusTable() {
+        const tbody = document.getElementById('batch-preview-body');
+        if (!tbody || isViendoLista) return;
+
+        // Calcular estadísticas
+        const total = batchList.filter(x => x.encontrado).length;
+        const gen = batchList.filter(x => x.status === "GENERADO" || x.status === "FINALIZADO").length;
+        const err = batchList.filter(x => x.status === "ERROR" || x.status === "FALLO RED").length;
+
+        const counterEl = document.getElementById('batch-stats-counter');
+        if (counterEl) {
+            counterEl.innerHTML = `
+                <span class="badge bg-primary">${gen}/${total} Procesados</span>
+                ${err > 0 ? `<span class="badge bg-danger">${err} Fallidos</span>` : ''}
+            `;
+        }
+
+        tbody.innerHTML = "";
+        batchList.forEach(item => {
+            if (!item.encontrado) return;
+            let badge = '<span class="badge bg-secondary opacity-50">En Cola</span>';
+            if (item.status === "PROCESANDO") badge = '<div class="spinner-border spinner-border-sm text-warning" role="status"></div> <small class="text-warning fw-bold">Generando...</small>';
+            if (item.status === "GENERADO" || item.status === "FINALIZADO") badge = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Listo</span>';
+            if (item.status === "ERROR" || item.status === "FALLO RED") badge = '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Error</span>';
+
+            let row = `
+            <tr id="row-${item.rut}">
+                <td class="small font-monospace p-2">${item.rut}</td>
+                <td class="small text-truncate p-2" style="max-width: 180px;">${item.nombre}</td>
+                <td class="text-center p-2" id="status-${item.rut}">${badge}</td>
+            </tr>
+        `;
+            tbody.innerHTML += row;
+        });
+    }
+    // --- HELPER PARA ACTUALIZAR FILA INDIVIDUAL SIN RE-RENDERIZAR TODO ---
+    function actualizarFilaEstado(rut, estado) {
+        const tdStatus = document.getElementById(`status-${rut}`);
+        if (!tdStatus) return;
+        let badge = "";
+        if (estado === "PROCESANDO") badge = '<div class="spinner-border spinner-border-sm text-warning" role="status"></div>';
+        else if (estado === "GENERADO" || estado === "FINALIZADO") badge = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Listo</span>';
+        else if (estado === "ERROR" || estado === "FALLO RED") badge = '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Error</span>';
+        else badge = `<span class="badge bg-secondary">${estado}</span>`;
+        tdStatus.innerHTML = badge;
+
+        // Actualizar contadores globales de forma reactiva
+        const total = batchList.filter(x => x.encontrado).length;
+        const gen = batchList.filter(x => x.status === "GENERADO" || x.status === "FINALIZADO").length;
+        const err = batchList.filter(x => x.status === "ERROR" || x.status === "FALLO RED").length;
+        const counterEl = document.getElementById('batch-stats-counter');
+        if (counterEl) {
+            counterEl.innerHTML = `
+                <span class="badge bg-primary">${gen}/${total} Procesados</span>
+                ${err > 0 ? `<span class="badge bg-danger">${err} Fallidos</span>` : ''}
+            `;
+        }
+    }
+    function verListaLote() {
+        isViendoLista = true; // Pausar updates de fondo
+
+        const lista = batchList.filter(x => x.encontrado);
+
+        // Tabla con PROGRAMA y FUNCIÓN (Truncada)
+        let htmlTabla = `
+        <div style="max-height: 400px; overflow-y: auto; text-align: left;">
+            <table class="table table-sm table-striped table-bordered" style="font-size: 0.75rem;">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width: 25%">Nombre</th>
+                        <th style="width: 30%">Programa Detectado</th>
+                        <th style="width: 45%">Función Detectada</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${lista.map(p => {
+            // Resaltar en rojo si falta información crítica
+            let progStyle = (p.programa && p.programa.length > 3) ? "text-dark" : "text-danger fw-bold";
+            let funcStyle = (p.funcion && p.funcion.length > 5) ? "text-dark" : "text-danger fw-bold";
+
+            return `
+                        <tr>
+                            <td class="fw-bold">${p.nombre}</td>
+                            <td class="${progStyle}">
+                                ${p.programa || '⚠️ VACÍO'}
+                            </td>
+                            <td class="${funcStyle}">
+                                <div class="text-truncate" style="max-width: 250px;" title="${p.funcion}">
+                                    ${p.funcion || '⚠️ VACÍA'}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+        }).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-2 small text-muted fst-italic text-end">
+           Total: ${lista.length} registros cargados.
+        </div>`;
+
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Verificación de Datos Cargados',
+                html: htmlTabla,
+                width: '900px', // Más ancho para ver datos
+                showConfirmButton: true,
+                confirmButtonText: 'Cerrar',
+                allowOutsideClick: false
+            }).then(() => {
+                isViendoLista = false;
+            });
+        }
+    }
+    // Helper de reintento automático (Exponential Backoff) para mitigar fallos por cuota (Too many simultaneous executions)
+    function llamarBackendConReintento(nombreFuncion, params, onSuccess, intentoActual = 1) {
+        const MAX_INTENTOS = 4;
+        const ESPERA_BASE_MS = 2000; // Inicia con 2 segundos, luego 4, luego 8...
+
+        google.script.run
+            .withSuccessHandler(onSuccess)
+            .withFailureHandler(function(error) {
+                const msj = error.message || String(error);
+                const esErrorDeCuota = msj.toLowerCase().includes("ocupado") || 
+                                       msj.toLowerCase().includes("too many") || 
+                                       msj.toLowerCase().includes("timeout") ||
+                                       msj.toLowerCase().includes("script") ||
+                                       msj.toLowerCase().includes("saturado");
+
+                if (esErrorDeCuota && intentoActual < MAX_INTENTOS) {
+                    const espera = ESPERA_BASE_MS * Math.pow(2, intentoActual - 1);
+                    toggleLoader(true, `Sistema con alta concurrencia. Reintentando (${intentoActual}/${MAX_INTENTOS - 1})... no cierre la ventana`);
+                    setTimeout(() => {
+                        llamarBackendConReintento(nombreFuncion, params, onSuccess, intentoActual + 1);
+                    }, espera);
+                } else {
+                    toggleLoader(false);
+                    alert("Error en la plataforma. Por favor, reintente en 1 minuto.\n\nDetalle técnico: " + msj);
+                }
+            })
+            [nombreFuncion](params);
+    }
+
+    function generarIndividual() {
+        const info = recopilarDatos();
+        toggleLoader(true, "Generando documento y registrando... Espere unos segundos");
+
+        llamarBackendConReintento('procesarInforme', info, function(resp) {
+            toggleLoader(false);
+            if (resp.bloqueoTotal) {
+                alert("⚠️ ATENCIÓN:\n\n" + resp.mensajeBloqueo);
+                return;
+            }
+            if (resp.exito) {
+                configurarPaso3Individual({ urlRemu: resp.urlRemu, urlTransp: resp.urlTransp, urlDocs: resp.urlDocs });
+                procesoBloqueado = true;
+                document.getElementById('locked-message').classList.remove('d-none');
+                localStorage.setItem('app_session_locked', 'true');
+                localStorage.setItem('app_session_links', JSON.stringify({ remu: resp.urlRemu, transp: resp.urlTransp }));
+            } else {
+                alert("Error crítico al procesar: " + resp.error);
+            }
+        });
+    }
+
+    // Funciones de subida y borrado
+    function finalizarIndividual() {
+        const fileInput = document.getElementById('archivoFirmadoSingle');
+        if (fileInput.files.length === 0) return alert("⚠️ Atención: Es obligatorio adjuntar el archivo firmado.");
+
+        const file = fileInput.files[0];
+        if (file.size > 5 * 1024 * 1024) {
+            const sizeMsg = "El archivo excede el tamaño máximo permitido de 5MB. Por favor, suba un archivo más liviano.";
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ icon: 'warning', title: 'Archivo muy grande', text: sizeMsg });
+            } else {
+                alert("⚠️ " + sizeMsg);
+            }
+            return;
+        }
+
+        const reader = new FileReader();
+
+        toggleLoader(true, "Subiendo archivo y finalizando...");
+
+        reader.onload = function (e) {
+            const raw = e.target.result.split(',')[1];
+            const nombreCompleto = document.getElementById('nombre').value;
+            const extension = file.name.split('.').pop();
+            const data = {
+                mimeType: file.type,
+                fileName: nombreCompleto + "." + extension,
+                bytes: raw,
+                rut: document.getElementById('rutFull').value,
+                mes: document.getElementById('mes').value,
+                nombre: document.getElementById('nombre').value
+            };
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    toggleLoader(false);
+                    alert("✅ ¡Proceso finalizado correctamente!");
+                    procesoBloqueado = false;
+                    limpiarStorageCompleto();
+                    fileInput.value = "";
+                    resetearAplicacionCompleta();
+                })
+                .withFailureHandler(err => {
+                    toggleLoader(false);
+                    alert("Error al subir el archivo: " + err);
+                })
+                .guardarArchivoFirmado(data);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function configurarPaso3IndividualDual() {
+        document.getElementById('upload-ui-single').classList.add('d-none');
+        document.getElementById('upload-ui-batch').classList.add('d-none');
+
+        const dualUi = document.getElementById('upload-ui-single-dual');
+        if (dualUi) dualUi.classList.remove('d-none');
+
+        document.getElementById('locked-alert-3').classList.remove('d-none');
+        goToStep(3);
+    }
+
+    function finalizarIndividualDual() {
+        const fileTransp = document.getElementById('archivoTransp').files[0];
+        const fileBoleta = document.getElementById('archivoInformeBoleta').files[0];
+
+        if (!fileTransp || !fileBoleta) {
+            return alert("⚠️ Atención: Debe adjuntar ambos archivos (Transparencia e Informe con Boleta).");
+        }
+
+        if (fileTransp.size > 5 * 1024 * 1024 || fileBoleta.size > 5 * 1024 * 1024) {
+            const sizeMsg = "Uno o ambos archivos exceden el tamaño máximo permitido de 5MB. Por favor, suba archivos más livianos.";
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ icon: 'warning', title: 'Archivo muy grande', text: sizeMsg });
+            } else {
+                alert("⚠️ " + sizeMsg);
+            }
+            return;
+        }
+
+        toggleLoader(true, "Subiendo archivos y finalizando...");
+
+        const readFiles = async () => {
+            const readFile = (file) => new Promise((resolve) => {
+                const r = new FileReader();
+                r.onload = e => resolve(e.target.result.split(',')[1]);
+                r.readAsDataURL(file);
+            });
+
+            const rawTransp = await readFile(fileTransp);
+            const rawBoleta = await readFile(fileBoleta);
+            return { rawTransp, rawBoleta };
+        };
+
+        readFiles().then(({ rawTransp, rawBoleta }) => {
+            const extTransp = fileTransp.name.split('.').pop();
+            const extBoleta = fileBoleta.name.split('.').pop();
+            const info = recopilarDatos();
+
+            const payload = {
+                rut: document.getElementById('rutFull').value,
+                mes: document.getElementById('mes').value,
+                nombre: document.getElementById('nombre').value,
+                rawTransp: rawTransp,
+                rawBoleta: rawBoleta,
+                extTransp: extTransp,
+                extBoleta: extBoleta,
+                mimeTransp: fileTransp.type,
+                mimeBoleta: fileBoleta.type,
+                datosExtra: info
+            };
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    toggleLoader(false);
+                    alert("✅ ¡Proceso finalizado correctamente!");
+                    procesoBloqueado = false;
+                    limpiarStorageCompleto();
+                    document.getElementById('archivoTransp').value = "";
+                    document.getElementById('archivoInformeBoleta').value = "";
+                    resetearAplicacionCompleta();
+                })
+                .withFailureHandler(err => {
+                    toggleLoader(false);
+                    alert("Error al subir archivos: " + err);
+                })
+                .guardarArchivosDual(payload);
+        });
+    }
+
+    function subirIndividual(index) {
+        const input = document.getElementById(`file-${index}`);
+        if (!input || input.files.length === 0) return;
+        const file = input.files[0];
+
+        if (file.size > 5 * 1024 * 1024) {
+            const sizeMsg = "El archivo excede el tamaño máximo permitido de 5MB. Por favor, suba un archivo más liviano.";
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ icon: 'warning', title: 'Archivo muy grande', text: sizeMsg });
+            } else {
+                alert("⚠️ " + sizeMsg);
+            }
+            return;
+        }
+
+        const user = batchList[index];
+        const btn = document.getElementById(`btn-up-${index}`);
+        const originalContent = btn.innerHTML;
+        btn.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+        btn.classList.add('disabled');
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const raw = e.target.result.split(',')[1];
+            const extension = file.name.split('.').pop();
+            const payload = {
+                mimeType: file.type, fileName: user.nombre + "." + extension, bytes: raw,
+                rut: user.rut, nombre: user.nombre, mes: document.getElementById('mes').value
+            };
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    batchList[index].uploaded = true;
+                    batchList[index].status = "FINALIZADO";
+                    guardarEstadoLote(); // LOCK 4
+                    configurarPaso3Lote();
+                })
+                .withFailureHandler(err => {
+                    alert("Error: " + err);
+                    btn.innerHTML = originalContent;
+                    btn.classList.remove('disabled');
+                })
+                .guardarArchivoFirmado(payload);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function configurarPaso3Lote() {
+        const uiSingle = document.getElementById('upload-ui-single');
+        const uiBatch = document.getElementById('upload-ui-batch');
+        const tbody = document.getElementById('batch-upload-body');
+        const alert3 = document.getElementById('locked-alert-3');
+
+        if (uiSingle) uiSingle.classList.add('d-none');
+        if (uiBatch) uiBatch.classList.remove('d-none');
+        if (alert3) alert3.classList.remove('d-none');
+
+        document.getElementById('layout-sidebar').classList.remove('d-none');
+        const main = document.getElementById('layout-main');
+        if (main) { main.classList.remove('col-12'); main.classList.add('col-lg-9'); }
+
+        if (tbody) {
+            tbody.innerHTML = "";
+
+            // Check active mode
+            const sessionDual = localStorage.getItem('app_session_modo_singeneracion') === 'true';
+            isModoSinGeneracion = isModoSinGeneracion || sessionDual;
+
+            batchList.forEach((user, index) => {
+                if (!user.encontrado) return;
+
+                let estadoHtml = '';
+                let btnHtml = '';
+                let linkPdf = (user.links && (user.links.remu || user.links.urlRemu)) ? (user.links.remu || user.links.urlRemu) : "#";
+
+                if (user.uploaded || user.status === "FINALIZADO") {
+                    estadoHtml = '<span class="badge bg-success">Listo / Subido</span>';
+                    btnHtml = `
+                    <div class="d-flex gap-1 justify-content-center">
+                        ${user.links && user.links.docs ? `<button class="btn btn-sm btn-outline-primary" onclick="window.open('${user.links.docs}', '_blank')" title="Editar Documentos (Google Docs)"><i class="bi bi-pencil-square"></i> Editar</button>` : ''}
+                        <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-check-lg"></i> OK</button>
+                    </div>`;
+                } else if (isModoSinGeneracion) {
+                    // MODO DUAL
+                    let badgesDual = [];
+                    if (user.uploadedTransp) badgesDual.push('<span class="badge bg-success"><i class="bi bi-eye"></i> Listo Trans</span>');
+                    if (user.uploadedRemu) badgesDual.push('<span class="badge bg-success"><i class="bi bi-receipt"></i> Listo Remu</span>');
+
+                    if (badgesDual.length === 2 && user.status !== "FINALIZADO") {
+                        // All uploaded locally but status might not be finalized yet
+                        estadoHtml = '<span class="badge bg-success">Sincronizando...</span>';
+                    } else if (badgesDual.length > 0) {
+                        estadoHtml = badgesDual.join('<br>');
+                    } else {
+                        estadoHtml = '<span class="badge bg-warning text-dark">Pendiente Ambos</span>';
+                    }
+
+                    btnHtml = `
+                    <div class="d-flex gap-2 flex-wrap align-items-center justify-content-center">
+                        ${!user.uploadedTransp ? `
+                        <label class="btn btn-sm btn-outline-primary cursor-pointer mb-0" id="btn-up-transp-${index}">
+                            <i class="bi bi-upload"></i> Transparencia
+                            <input type="file" class="d-none" accept=".pdf,.jpg,.png" onchange="subirDualLote(${index}, 'transp', this)">
+                        </label>` : ''}
+                        
+                        ${!user.uploadedRemu ? `
+                        <label class="btn btn-sm btn-outline-dark cursor-pointer mb-0" id="btn-up-remu-${index}">
+                            <i class="bi bi-upload"></i> Reporte c/Boleta
+                            <input type="file" class="d-none" accept=".pdf,.jpg,.png" onchange="subirDualLote(${index}, 'remu', this)">
+                        </label>` : ''}
+                        
+                        <button class="btn btn-sm btn-outline-danger" onclick="borrarRegistro('${user.rut}', ${index})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                    </div>
+                `;
+                } else if (user.status === "GENERADO") {
+                    estadoHtml = '<span class="badge bg-warning text-dark">Pendiente Carga</span>';
+                    btnHtml = `
+                    <div class="d-flex gap-1 align-items-center justify-content-center">
+                        ${user.links && user.links.docs ? `<button class="btn btn-sm btn-outline-info" onclick="window.open('${user.links.docs}', '_blank')" title="Editar Documentos (Google Docs)"><i class="bi bi-pencil-square"></i> Editar</button>` : ''}
+                        <a href="${linkPdf}" target="_blank" class="btn btn-sm btn-primary" title="Descargar PDF"><i class="bi bi-download"></i></a>
+                        <label class="btn btn-sm btn-success cursor-pointer position-relative mb-0" id="btn-up-${index}">
+                            <i class="bi bi-upload"></i>
+                            <input type="file" id="file-${index}" class="d-none" accept=".pdf,.jpg,.png" onchange="subirIndividual(${index})">
+                        </label>
+                        <button class="btn btn-sm btn-outline-danger" onclick="borrarRegistro('${user.rut}', ${index})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                    </div>
+                `;
+                } else if (user.status === "ERROR") {
+                    estadoHtml = '<span class="badge bg-danger">Error Gen.</span>';
+                    btnHtml = `
+                    <div class="d-flex gap-1 justify-content-center">
+                        <button id="btn-retry-${index}" class="btn btn-sm btn-warning text-dark fw-bold" onclick="reintentarGeneracion(${index})" title="Reintentar generación"><i class="bi bi-arrow-clockwise"></i> Reintentar</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="borrarRegistro('${user.rut}', ${index})" title="Eliminar de lista"><i class="bi bi-trash"></i></button>
+                    </div>
+                `;
+                } else {
+                    estadoHtml = '<span class="badge bg-secondary">En Cola</span>';
+                    btnHtml = '...';
+                }
+
+                let row = `
+                <tr id="row-${user.rut}">
+                    <td class="small font-monospace align-middle">${user.rut}</td>
+                    <td class="small text-truncate align-middle" style="max-width: 150px;">${user.nombre}</td>
+                    <td class="text-center align-middle" id="status-${user.rut}">${estadoHtml}</td>
+                    <td class="text-center align-middle">${btnHtml}</td>
+                </tr>
+            `;
+                tbody.innerHTML += row;
+            });
+        }
+        checkBatchCompletion();
+        goToStep(3);
+    }
+
+
+    function borrarRegistro(rut, index) {
+        if (!confirm("⚠️ ¿Eliminar registro?\n\nSe borrará el PDF generado y deberá iniciar de nuevo para este RUT.")) return;
+
+        const mes = document.getElementById('mes').value;
+
+        // Feedback visual
+        const row = document.getElementById(`row-${rut}`);
+        if (row) row.style.opacity = '0.5';
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                if (res.exito) {
+                    // Resetear estado del item en batchList
+                    batchList[index].status = "GENERADO"; // O volver a SIN GENERAR si quieres que lo haga de nuevo
+                    batchList[index].uploaded = false;
+                    // NOTA: Si borra el registro de la BD, el estado lógico debería ser 'SIN GENERAR' 
+                    // pero aquí asumimos que quiere volver a subir el archivo.
+                    // Si la intención es limpiar, podríamos sacarlo de la lista visual o marcarlo como pendiente.
+
+                    // Para este flujo: Lo dejamos como GENERADO pero sin upload para que intente subir de nuevo si fue error de archivo.
+                    // OJO: Si la función borrarRegistro del backend borra el PDF generado, entonces debe volver a "SIN GENERAR" o "ERROR".
+                    // Asumiré que el usuario quiere RE-SUBIR, pero si el backend borró el PDF, el link de descarga fallará.
+
+                    // Corrección Lógica: Si se borra de BD, hay que sacarlo de la lista de "listos".
+                    // Como es complejo regenerar uno solo en este flujo, lo mejor es marcarlo visualmente.
+
+                    alert("Registro eliminado de la base de datos.");
+
+                    // Opción: Quitarlo de la lista visual para que no estorbe
+                    // batchList.splice(index, 1); 
+                    // guardarEstadoLote();
+                    // configurarPaso3Lote();
+
+                    // Opción actual: Solo resetear upload flag
+                    batchList[index].uploaded = false;
+                    guardarEstadoLote();
+                    configurarPaso3Lote();
+
+                } else {
+                    alert("Error: " + res.msj);
+                    if (row) row.style.opacity = '1';
+                }
+            })
+            .withFailureHandler((e) => {
+                alert("Error de red: " + e);
+                if (row) row.style.opacity = '1';
+            })
+            .borrarRegistro(rut, mes);
+    }
+
+    function checkBatchCompletion() {
+        // Cuenta los que son visibles (encontrados)
+        const activeItems = batchList.filter(x => x.encontrado);
+        const completed = activeItems.filter(x => x.status === "FINALIZADO");
+
+        const btnExit = document.getElementById('btnCerrarLote');
+        const btnGlobalExit = document.getElementById('btnSalir');
+
+        // CORRECCIÓN PARA EVITAR SOFTLOCK CON LISTA VACÍA
+        // Si la lista está vacía (activeItems.length === 0), permitimos salir porque no hay nada pendiente.
+        if (activeItems.length === 0 || completed.length === activeItems.length) {
+            if (btnExit) {
+                btnExit.disabled = false;
+                btnExit.classList.replace('btn-secondary', 'btn-success');
+                btnExit.innerText = activeItems.length === 0 ? "VOLVER (LISTA VACÍA)" : "FINALIZAR PROCESO MASIVO";
+            }
+            if (btnGlobalExit) btnGlobalExit.disabled = false;
+        } else {
+            if (btnExit) {
+                btnExit.disabled = true;
+                btnExit.innerText = `Faltan ${activeItems.length - completed.length} archivos`;
+            }
+            if (btnGlobalExit) btnGlobalExit.disabled = true;
+        }
+    }
+
+    function subirDualLote(index, tipo, inputElement) {
+        if (!inputElement.files || inputElement.files.length === 0) return;
+        const file = inputElement.files[0];
+
+        if (file.size > 5 * 1024 * 1024) {
+            const sizeMsg = "El archivo excede el tamaño máximo permitido de 5MB. Por favor, suba un archivo más liviano.";
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ icon: 'warning', title: 'Archivo muy grande', text: sizeMsg });
+            } else {
+                alert("⚠️ " + sizeMsg);
+            }
+            return;
+        }
+
+        const user = batchList[index];
+        const btn = document.getElementById(`btn-up-${tipo}-${index}`);
+        const originalContent = btn.innerHTML;
+        btn.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Subiendo';
+        btn.classList.add('disabled');
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const raw = e.target.result.split(',')[1];
+            const extension = file.name.split('.').pop();
+            const info = recopilarDatos();
+            // Sobreescribir rut/nombre para lote
+            info.rut = user.rut;
+            info.nombre = user.nombre;
+
+            const payload = {
+                tipo: tipo,
+                mimeType: file.type,
+                fileName: user.nombre + "." + extension,
+                bytes: raw,
+                rut: user.rut,
+                nombre: user.nombre,
+                mes: document.getElementById('mes').value,
+                datosExtra: info
+            };
+
+            google.script.run
+                .withSuccessHandler((res) => {
+                    if (tipo === 'transp') {
+                        batchList[index].uploadedTransp = true;
+                        batchList[index].status = batchList[index].uploadedRemu ? "FINALIZADO" : "FINALIZADO_PARCIAL";
+                    } else {
+                        batchList[index].uploadedRemu = true;
+                        batchList[index].status = batchList[index].uploadedTransp ? "FINALIZADO" : "FINALIZADO_PARCIAL";
+                    }
+                    if (batchList[index].status === "FINALIZADO") {
+                        batchList[index].uploaded = true;
+                    }
+                    guardarEstadoLote();
+                    configurarPaso3Lote(); // Actualizar UI
+                })
+                .withFailureHandler((err) => {
+                    alert("Error al subir archivo: " + err);
+                    btn.innerHTML = originalContent;
+                    btn.classList.remove('disabled');
+                })
+                .guardarArchivoDualLote(payload);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // --- Reportes ---
+    function abrirModalReporte() {
+        const m = new bootstrap.Modal(document.getElementById('modalReporte'));
+        m.show();
+    }
+
+    function enviarCorreoReporte() {
+        const msg = document.getElementById('txtReporte').value;
+        if (!msg) return alert("Escribe un mensaje.");
+
+        const rut = document.getElementById('rutFull').value;
+        const nombre = document.getElementById('nombre').value;
+        const fono = document.getElementById('fono').value;
+        const correo = document.getElementById('correo').value;
+
+        if (!rut) return alert("Debes estar identificado (Paso 1) para enviar un reporte.");
+
+        toggleLoader(true, "Enviando reporte...");
+        const datos = { nombre, rut, fono, correo, mensaje: msg };
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                toggleLoader(false);
+                if (res.exito) {
+                    alert("Reporte enviado correctamente.");
+                    const m = bootstrap.Modal.getInstance(document.getElementById('modalReporte'));
+                    m.hide();
+                    document.getElementById('txtReporte').value = "";
+                } else {
+                    alert("Error al enviar: " + res.error);
+                }
+            })
+            .enviarReporteProblema(datos);
+    }
+
+    // --- FUNCION AUXILIAR PARA MOSTRAR LA LISTA COLAPSABLE ---
+    // Esta función debe llamarse al iniciar lote para llenar la tabla de "Ver Lista"
+    function renderBatchAlertList() {
+        const tbody = document.getElementById('batch-alert-list-body');
+        if (!tbody) return;
+        tbody.innerHTML = "";
+
+        batchList.forEach(item => {
+            if (!item.encontrado) return;
+
+            // Si tiene función detectada, muéstrala. Si no, indica que usará la genérica.
+            let funcDisplay = item.funcion && item.funcion.length > 5
+                ? `<span class="text-success"><i class="bi bi-check-all"></i> ${item.funcion.substring(0, 40)}...</span>`
+                : `<span class="text-muted fst-italic">Usará texto genérico</span>`;
+
+            let row = `<tr>
+            <td class="font-monospace">${item.rut}</td>
+            <td>${item.nombre}</td>
+            <td class="small">${funcDisplay}</td>
+        </tr>`;
+            tbody.innerHTML += row;
+        });
+    }
+
+    function reintentarGeneracion(index) {
+        const user = batchList[index];
+        const btn = document.getElementById(`btn-retry-${index}`);
+
+        // Feedback visual
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        }
+
+        user.status = "PROCESANDO";
+        actualizarFilaEstado(user.rut, "PROCESANDO");
+
+        // Reconstruir datos para este ítem
+        const commonData = recopilarDatos();
+        const fechaActual = new Date();
+        let anioProceso = fechaActual.getFullYear();
+        if (commonData.mesSeleccionado === "DICIEMBRE" && fechaActual.getMonth() === 0) anioProceso--;
+
+        const itemData = {
+            ...commonData,
+            rut: user.rut,
+            nombre: user.nombre,
+            anio: anioProceso,
+            funcion: (user.funcion && user.funcion.length > 5) ? user.funcion : commonData.funcion,
+            programa: (user.programa && user.programa.length > 2) ? user.programa : (commonData.programa || "HONORARIOS"),
+            correo: user.email || commonData.correo,
+            direccion: user.direccion || commonData.direccion
+        };
+
+        google.script.run
+            .withSuccessHandler((result) => {
+                if (result.exito) {
+                    user.status = "GENERADO";
+                    user.links = result.links;
+                    guardarEstadoLote();
+                    configurarPaso3Lote(); // Actualizar tabla
+                } else {
+                    user.status = "ERROR";
+                    actualizarFilaEstado(user.rut, "ERROR");
+                    alert("Fallo al reintentar: " + result.error);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Reintentar';
+                    }
+                }
+            })
+            .withFailureHandler((err) => {
+                user.status = "ERROR";
+                actualizarFilaEstado(user.rut, "ERROR");
+                alert("Error de red: " + err);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Reintentar';
+                }
+            })
+            .procesarItemIndividualLote(itemData);
+    }
+
+    // --- LÓGICA DEL WIZARD ---
+    function avanzarWizard(pasoDestino) {
+        // Validaciones básicas antes de avanzar
+        if (pasoDestino === 2) {
+            const fono = document.getElementById('fono').value;
+            const correo = document.getElementById('correo').value;
+            if ((!fono || !correo) && document.getElementById('batch-alert-form').classList.contains('d-none')) {
+                return alert("Por favor complete su Teléfono y Correo Electrónico.");
+            }
+        }
+        if (pasoDestino === 3) {
+            const funcion = document.getElementById('funcionVisual').value;
+            if (!funcion && document.getElementById('batch-alert-form').classList.contains('d-none')) {
+                return alert("Debe describir la función de su contrato.");
+            }
+        }
+        if (pasoDestino === 4) {
+            const actividades = document.getElementById('actividades').value.trim();
+            if (actividades.length < 30) {
+                return alert("⚠️ DETALLE INSUFICIENTE:\n\nPor favor, describa sus actividades y avances con mayor detalle (mínimo 30 caracteres para que su informe pueda ser procesado).");
+            }
+        }
+
+        // Ocultar todos los pasos
+        document.querySelectorAll('.form-wizard-step').forEach(step => {
+            step.classList.remove('active');
+        });
+
+        // Mostrar paso destino
+        document.getElementById(`form-wizard-step-${pasoDestino}`).classList.add('active');
+
+        // Actualizar barra de progreso y clases de los indicadores
+        const totalSteps = 4;
+        const progressPercentage = ((pasoDestino - 1) / (totalSteps - 1)) * 100;
+        document.getElementById('wizard-progress-bar').style.width = `${progressPercentage}%`;
+
+        document.querySelectorAll('.wizard-step-indicator').forEach(indicator => {
+            const stepNum = parseInt(indicator.getAttribute('data-step-target'));
+            if (stepNum < pasoDestino) {
+                indicator.classList.remove('active');
+                indicator.classList.add('completed');
+                indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-check-lg"></i>'; // Marca de check
+            } else if (stepNum === pasoDestino) {
+                indicator.classList.add('active');
+                indicator.classList.remove('completed');
+                // Restaurar iconos si estaban completos
+                if(stepNum === 1) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-person-lines-fill"></i>';
+                if(stepNum === 2) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-calendar-event"></i>';
+                if(stepNum === 3) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-journal-text"></i>';
+                if(stepNum === 4) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-check2-circle"></i>';
+            } else {
+                indicator.classList.remove('active', 'completed');
+                // Restaurar iconos
+                if(stepNum === 1) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-person-lines-fill"></i>';
+                if(stepNum === 2) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-calendar-event"></i>';
+                if(stepNum === 3) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-journal-text"></i>';
+                if(stepNum === 4) indicator.querySelector('.step-circle').innerHTML = '<i class="bi bi-check2-circle"></i>';
+            }
+        });
+        
+        // Scroll al tope de la sección para mejor UX
+        const step2Container = document.getElementById('step-2-content');
+        if(step2Container) {
+            step2Container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // Ajustar textareas que se vuelven visibles en este paso (definido en js_core)
+        setTimeout(adjustAutoExpandTextareas, 150);
+    }
+</script>

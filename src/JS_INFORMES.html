@@ -1,0 +1,457 @@
+<script>
+
+    /**
+     * ==========================================
+     * LÓGICA DE FECHAS Y LICENCIAS
+     * ==========================================
+     */
+
+    function calcularFechaFinUnica() {
+        const motivoSelect = document.getElementById('ausenciaMotivo');
+        const desdeInput = document.getElementById('ausenciaDesde');
+        const diasInput = document.getElementById('ausenciaDias');
+        const hastaInput = document.getElementById('ausenciaHasta');
+
+        if (desdeInput.value && diasInput.value) {
+            // Inicializar fecha forzando la hora para evitar problemas de zona horaria
+            let fecha = new Date(desdeInput.value + 'T00:00:00');
+            const dias = parseInt(diasInput.value);
+            const esVacaciones = (motivoSelect.value === "8"); // Verifica si es Opción 8
+
+            if (dias > 0) {
+                if (esVacaciones) {
+                    // --- LÓGICA DÍAS HÁBILES (Lunes a Viernes) ---
+                    let diasPorSumar = dias - 1;
+
+                    while (diasPorSumar > 0) {
+                        fecha.setDate(fecha.getDate() + 1); // Avanzar un día
+                        const diaSemana = fecha.getDay();   // 0 = Domingo, 6 = Sábado
+
+                        // Si NO es sábado (6) ni domingo (0), descontamos un día hábil
+                        if (diaSemana !== 0 && diaSemana !== 6) {
+                            diasPorSumar--;
+                        }
+                    }
+
+                } else {
+                    // --- LÓGICA DÍAS CORRIDOS (Licencias Médicas, etc.) ---
+                    fecha.setDate(fecha.getDate() + (dias - 1));
+                }
+
+                // Formatear salida YYYY-MM-DD
+                const yyyy = fecha.getFullYear();
+                const mm = String(fecha.getMonth() + 1).padStart(2, '0');
+                const dd = String(fecha.getDate()).padStart(2, '0');
+                hastaInput.value = `${yyyy}-${mm}-${dd}`;
+            } else {
+                hastaInput.value = "";
+            }
+        } else {
+            hastaInput.value = "";
+        }
+    }
+
+    function limpiarAusenciaUnica() {
+        document.getElementById('ausenciaMotivo').value = "";
+        document.getElementById('ausenciaDesde').value = "";
+        document.getElementById('ausenciaDias').value = "";
+        document.getElementById('ausenciaHasta').value = "";
+    }
+
+    /**
+     * ==========================================
+     * MÓDULO DE NORMALIZACIÓN Y SIMILITUD
+     * ==========================================
+     */
+    function normalizarRegistro(item) {
+        if (!item) return item;
+        const origenRaw = (item.origen || "").toUpperCase().trim();
+        if (origenRaw.includes("SUMA ALZADA")) {
+            item.programa = "Honorario Suma Alzada";
+        }
+        if (!item.funcion || item.funcion.length < 5) {
+            item.funcion = "Apoyo a la gestión municipal";
+        }
+        return item;
+    }
+
+    function toTitleCase(str) {
+        return str.replace(/\w\S*/g, function (txt) {
+            return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+        });
+    }
+
+    function limpiarParaSimilitud(texto) {
+        if (!texto) return "";
+        return texto.toUpperCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/ANEXO\s*\d+/g, "")
+            .replace(/\(\d+\)/g, "")
+            .replace(/[^A-Z0-9\s]/g, "")
+            .trim();
+    }
+
+    function calcularSimilitud(s1, s2) {
+        const c1 = limpiarParaSimilitud(s1);
+        const c2 = limpiarParaSimilitud(s2);
+        if (!c1 || !c2) return 0;
+        if (c1 === c2) return 100;
+        const filterWords = (str) => str.split(/\s+/).filter(w => w.length > 3);
+        const words1 = filterWords(c1);
+        const words2 = filterWords(c2);
+        let matches = 0;
+        words1.forEach(w => {
+            if (words2.includes(w)) matches++;
+        });
+        const maxWords = Math.max(words1.length, words2.length);
+        return maxWords === 0 ? 0 : Math.round((matches / maxWords) * 100);
+    }
+
+    /**
+     * ==========================================
+     * FUNCIONES CORE DE BÚSQUEDA INDIVIDUAL
+     * ==========================================
+     */
+
+    function buscar(event) {
+        if (event) event.preventDefault();
+        let rut = document.getElementById('rutSearch').value;
+        if (!rut) return alert("Por favor, ingrese un RUT válido.");
+
+        rut = formatearRutVisual(rut);
+        document.getElementById('rutSearch').value = rut;
+
+        toggleLoader(true, "Buscando funcionario...");
+
+        google.script.run
+            .withSuccessHandler((data) => {
+                toggleLoader(false);
+                if (data.encontrado) {
+                    data = normalizarRegistro(data);
+                    data.rut = formatearRutVisual(data.rut);
+
+                    // Aseguramos que la sección de ausencias esté visible
+                    const ausenciasContainer = document.getElementById('sec-ausencias');
+                    if (ausenciasContainer) ausenciasContainer.classList.remove('d-none');
+
+                    llenarFormulario(data);
+                    activarVistaLogeado(data, true);
+
+                    if (data.sesionPendiente) {
+                        alert("⚠️ ATENCIÓN:\n\nTiene un proceso pendiente.");
+                        configurarPaso3Individual(data.links);
+                        procesoBloqueado = true;
+                        document.getElementById('locked-message').classList.remove('d-none');
+                    } else if (data.sesionFinalizada) {
+                        alert("✅ Proceso finalizado.");
+                        configurarPaso3Individual(data.links);
+                        document.getElementById('upload-ui-single').classList.add('d-none');
+                        document.getElementById('locked-alert-3').innerHTML = '<i class="bi bi-check-circle-fill"></i> PROCESO FINALIZADO';
+                        document.getElementById('locked-alert-3').classList.replace('alert-danger', 'alert-success');
+                    } else {
+                        goToStep(2);
+                    }
+
+                } else {
+                    if (data.errorCritico) {
+                        alert("ERROR EN LA PLANILLA: " + data.errorCritico);
+                    } else {
+                        alert("RUT no encontrado en la hoja de dotación del mes.");
+                    }
+                }
+            })
+            .withFailureHandler((e) => {
+                toggleLoader(false);
+                alert("Error de conexión: " + e);
+            })
+            .buscarFuncionario(rut);
+    }
+
+    // --- FORMULARIOS ---
+
+    function llenarFormulario(data) {
+        // Limpiamos campos de jefatura antes de llenar por si el nuevo no tiene sugerencia
+        document.getElementById('inputJefaturaNombre').value = "";
+        document.getElementById('inputCargo').value = "";
+        document.getElementById('inputDirJefatura').value = "";
+        document.getElementById('selectJefatura').value = "";
+        document.getElementById('chkSubrogante').checked = false;
+
+        document.getElementById('nombre').value = data.nombre || "";
+        document.getElementById('programa').value = data.programa || "";
+        document.getElementById('rutFull').value = data.rut || "";
+        document.getElementById('rutVisual').value = data.rut || "";
+        document.getElementById('nacimiento').value = data.nacimiento || "";
+        document.getElementById('direccion').value = data.direccion || "";
+        
+        // --- PRIORIDAD DATOS HISTÓRICOS PARA CAMPOS VARIABLES ---
+        
+        // 1. Función (Si la nómina no tiene una descripción clara, usar la última registrada)
+        if (data.funcion && data.funcion.length > 5) {
+            document.getElementById('funcionVisual').value = data.funcion;
+        } else if (data.funcionHistorica) {
+            document.getElementById('funcionVisual').value = data.funcionHistorica;
+        } else {
+            document.getElementById('funcionVisual').value = "";
+        }
+
+        // 2. Contacto (Teléfono y Correo)
+        document.getElementById('fono').value = data.fono || data.fonoHistorico || "";
+        document.getElementById('correo').value = data.email || data.correoHistorico || "";
+
+        // 3. Jefatura (Prioriza sugerencia de nómina, luego histórica)
+        if (data.jefaturaSugerida) {
+            window.sugerenciaJefaturaPendiente = data.jefaturaSugerida;
+            // Si el select ya tiene cargadas las jefaturas, aplicamos de inmediato
+            if (document.getElementById('selectJefatura').options.length > 2) {
+                autocompletarJefatura(data.jefaturaSugerida);
+                window.sugerenciaJefaturaPendiente = null;
+            }
+        } else if (data.jefaturaHistorica && data.jefaturaHistorica.nombre) {
+            window.sugerenciaJefaturaPendiente = data.jefaturaHistorica.nombre;
+            // Guardar cargo y dirección históricos como respaldo inmediato
+            document.getElementById('inputJefaturaNombre').value = data.jefaturaHistorica.nombre;
+            document.getElementById('inputCargo').value = data.jefaturaHistorica.cargo;
+            document.getElementById('inputDirJefatura').value = data.jefaturaHistorica.direccion;
+            
+            if (document.getElementById('selectJefatura').options.length > 2) {
+                autocompletarJefatura(data.jefaturaHistorica.nombre);
+                window.sugerenciaJefaturaPendiente = null;
+            }
+        }
+
+        // 4. Actividades
+        if (data.actividadesAnteriores) {
+            document.getElementById('actividades').value = data.actividadesAnteriores;
+        }
+    }
+
+    function toggleInput(select, inputId) {
+        const input = document.getElementById(inputId);
+        if (select.value === 'SI') {
+            input.disabled = false;
+            input.focus();
+        } else {
+            input.disabled = true;
+            input.value = "";
+        }
+    }
+
+    function recopilarDatos() {
+        let jefaturaNombre = document.getElementById('inputJefaturaNombre').value;
+        let jefaturaDireccion = document.getElementById('inputDirJefatura').value;
+        const esSubrogante = document.getElementById('chkSubrogante').checked;
+
+        if (esSubrogante && !jefaturaNombre.toUpperCase().includes("(S)")) {
+            jefaturaNombre += " (S)";
+        }
+
+        let strLicenciaDoc = "NO PRESENTA";
+        let strEnfermedadDoc = "NO PRESENTA";
+        let strVacacionesDoc = "NO PRESENTA";
+        let backendLicenciaTexto = "NO PRESENTA";
+        let backendPeriodosTexto = "---";
+
+        const selectEl = document.getElementById('ausenciaMotivo');
+        const motivoVal = parseInt(selectEl.value);
+        const desde = document.getElementById('ausenciaDesde').value;
+        const hasta = document.getElementById('ausenciaHasta').value;
+        const dias = document.getElementById('ausenciaDias').value;
+
+        if (motivoVal && desde && hasta) {
+            const textoMotivo = selectEl.options[selectEl.selectedIndex].text;
+            const fmt = (iso) => {
+                const [y, m, d] = iso.split('-');
+                return `${d}/${m}/${y}`;
+            };
+            const rango = `${fmt(desde)} al ${fmt(hasta)} (${dias} días)`;
+
+            backendLicenciaTexto = textoMotivo;
+            backendPeriodosTexto = rango;
+
+            if (motivoVal === 1) strLicenciaDoc = rango;
+            else if (motivoVal === 8) strVacacionesDoc = rango;
+            else strEnfermedadDoc = `${textoMotivo}: ${rango}`;
+        }
+
+        let rawDir = document.getElementById('direccion').value || "";
+        let cleanDir = rawDir;
+        if (rawDir.includes('/')) {
+            const parts = rawDir.split('/');
+            const validParts = parts.map(p => p.trim()).filter(p => p && p !== '-' && p !== '0');
+            if (validParts.length > 0) cleanDir = validParts[validParts.length - 1];
+        }
+
+        return {
+            rut: document.getElementById('rutFull').value,
+            nombre: document.getElementById('nombre').value,
+            programa: (document.getElementById('programa').value || "").toUpperCase(),
+            funcion: document.getElementById('funcionVisual').value,
+            actividades: document.getElementById('actividades').value,
+            dificultades: document.getElementById('dificultades').value,
+            nacimiento: document.getElementById('nacimiento').value,
+            direccion: cleanDir,
+            datoLicencia: strLicenciaDoc,
+            datoEnfermedad: strEnfermedadDoc,
+            datoVacaciones: strVacacionesDoc,
+            licenciasTexto: backendLicenciaTexto,
+            periodosTexto: backendPeriodosTexto,
+            jefaturaNombre: jefaturaNombre,
+            jefaturaCargo: document.getElementById('inputCargo').value,
+            jefaturaDireccion: jefaturaDireccion,
+            mesSeleccionado: (document.getElementById('mes').value || "").toUpperCase(),
+            fechaInicioMes: document.getElementById('periodoMes').value,
+            fechaFinMes: document.getElementById('periodoFinMes').value,
+            fono: document.getElementById('fono').value,
+            correo: document.getElementById('correo').value
+        };
+    }
+
+    function initJefaturas() {
+        const dataList = document.getElementById('listJefaturas');
+        const selectEl = document.getElementById('selectJefatura');
+        if (!dataList || !selectEl) return;
+
+        dataList.innerHTML = "";
+        selectEl.innerHTML = '<option value="">-- Seleccione Jefatura (Recomendado) --</option>';
+
+        let optLoading = document.createElement('option');
+        optLoading.value = "Cargando jefaturas...";
+        dataList.appendChild(optLoading);
+
+        google.script.run
+            .withSuccessHandler(function (nombres) {
+                dataList.innerHTML = "";
+                nombres.forEach(nombre => {
+                    // Llenar datalist (para el input manual)
+                    let optList = document.createElement('option');
+                    optList.value = nombre;
+                    dataList.appendChild(optList);
+
+                    // Llenar el select dropdown
+                    let optSelect = document.createElement('option');
+                    optSelect.value = nombre;
+                    optSelect.textContent = nombre;
+                    selectEl.appendChild(optSelect);
+                });
+
+                // AGREGAR OPCIÓN PARA INGRESO MANUAL AL FINAL
+                let optOtro = document.createElement('option');
+                optOtro.value = "OTRO";
+                optOtro.textContent = "✍️ Ingresar manualmente (Otro)...";
+                selectEl.appendChild(optOtro);
+
+                // Aplicar la sugerencia que quedó en espera por la carga asíncrona
+                if (window.sugerenciaJefaturaPendiente) {
+                    autocompletarJefatura(window.sugerenciaJefaturaPendiente);
+                    window.sugerenciaJefaturaPendiente = null;
+                }
+            })
+            .withFailureHandler(function (e) { console.error(e); })
+            .obtenerListaNombresJefaturas();
+    }
+
+    function manejarCambioSelectJefatura(valor) {
+        if (valor === "OTRO") {
+            autocompletarJefatura("OTRO");
+        } else {
+            autocompletarJefatura(valor);
+        }
+    }
+
+    function autocompletarJefatura(nombreSeleccionado) {
+        if (!nombreSeleccionado) {
+            document.getElementById('inputJefaturaNombre').value = "";
+            document.getElementById('selectJefatura').value = "";
+            document.getElementById('manualJefaturaContainer').classList.add('d-none');
+            document.getElementById('inputCargo').value = "";
+            document.getElementById('inputDirJefatura').value = "";
+            document.getElementById('chkSubrogante').checked = false;
+            return;
+        }
+
+        const selectJefatura = document.getElementById('selectJefatura');
+        const manualContainer = document.getElementById('manualJefaturaContainer');
+        const inputNombre = document.getElementById('inputJefaturaNombre');
+        const btnGenerar = document.getElementById('btnGenerar');
+
+        // Sincronizar select
+        selectJefatura.value = nombreSeleccionado;
+
+        // Comprobar si el nombre sugerido existe en el select
+        if (selectJefatura.value === "" && nombreSeleccionado !== "") {
+            // No existe en las opciones predefinidas, forzar modo manual (OTRO)
+            selectJefatura.value = "OTRO";
+            manualContainer.classList.remove('d-none');
+            inputNombre.value = nombreSeleccionado;
+        } else {
+            // Existe o es una acción directa
+            if (nombreSeleccionado === "OTRO") {
+                manualContainer.classList.remove('d-none');
+                inputNombre.value = "";
+                inputNombre.focus();
+            } else {
+                manualContainer.classList.add('d-none');
+                inputNombre.value = nombreSeleccionado;
+            }
+        }
+
+        // Si es modo manual (OTRO), limpiamos los campos y no llamamos al backend
+        if (nombreSeleccionado === "OTRO") {
+            document.getElementById('inputCargo').value = "";
+            document.getElementById('inputDirJefatura').value = "";
+            document.getElementById('chkSubrogante').checked = false;
+            return;
+        }
+
+        // Feedback visual de carga y bloqueo del botón Generar PDF
+        const inputDir = document.getElementById('inputDirJefatura');
+        const inputCargo = document.getElementById('inputCargo');
+        inputDir.style.opacity = "0.5";
+        document.body.style.cursor = 'wait';
+
+        if (btnGenerar) {
+            btnGenerar.disabled = true;
+            btnGenerar.innerHTML = 'Obteniendo Datos... <span class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>';
+        }
+
+        google.script.run
+            .withSuccessHandler(function (datos) {
+                document.body.style.cursor = 'default';
+                inputDir.style.opacity = "1";
+
+                if (btnGenerar) {
+                    btnGenerar.disabled = false;
+                    btnGenerar.innerHTML = 'GENERAR PDF <i class="bi bi-file-earmark-pdf-fill ms-2"></i>';
+                }
+
+                if (datos) {
+                    // 1. Asignar Cargo
+                    const cargoUpper = (datos.cargo || "").toUpperCase();
+                    if (cargoUpper.includes("DIRECTOR")) inputCargo.value = "DIRECTOR(A)";
+                    else if (cargoUpper.includes("DEPARTAMENTO")) inputCargo.value = "JEFE(A) DE DEPARTAMENTO";
+                    else if (cargoUpper.includes("OFICINA")) inputCargo.value = "ENCARGADO(A) DE OFICINA";
+                    else if (cargoUpper.includes("ALCALDE")) inputCargo.value = "ALCALDE";
+                    else if (cargoUpper.includes("ADMINISTRADOR")) inputCargo.value = "ADMINISTRADOR(A) MUNICIPAL";
+                    else inputCargo.value = "";
+
+                    // 2. Asignar Dirección Completa
+                    document.getElementById('inputDirJefatura').value = datos.unidad || "";
+
+                    // 3. Check Subrogancia
+                    document.getElementById('chkSubrogante').checked = datos.esSub || false;
+                }
+            })
+            .withFailureHandler(function (e) {
+                console.error(e);
+                document.body.style.cursor = 'default';
+                inputDir.style.opacity = "1";
+
+                if (btnGenerar) {
+                    btnGenerar.disabled = false;
+                    btnGenerar.innerHTML = 'GENERAR PDF <i class="bi bi-file-earmark-pdf-fill ms-2"></i>';
+                }
+            })
+            .buscarInfoJefaturaPorNombre(nombreSeleccionado);
+    }
+</script>
