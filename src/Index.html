@@ -809,6 +809,88 @@
     <?!= include('JS_ACTIONS'); ?>
     <?!= include('JS_LISTENERS'); ?>
 
+    <!-- CHATBOT WIDGET -->
+    <div class="position-fixed bottom-0 end-0 m-4" style="z-index: 9999;">
+        <div id="ventana-chatbot" class="card shadow-lg border-0 d-none mb-3 rounded-4 bg-white" style="width: 360px; height: 480px; display: flex; flex-direction: column; border-bottom: 4px solid #eab308 !important;">
+            <div class="card-header text-white d-flex justify-content-between align-items-center rounded-top-4 py-3" style="background-color: #003366;">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 30px; height: 30px;">
+                        <i class="bi bi-robot text-dark fs-5"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold small lh-1">Soporte IA Plataforma</div>
+                        <small class="text-white-50" style="font-size: 0.65rem;">En línea • Respuestas Oficiales</small>
+                    </div>
+                </div>
+                <button class="btn btn-sm text-white p-0 opacity-75 hover:opacity-100" onclick="toggleChatbot()"><i class="bi bi-xlg"></i></button>
+            </div>
+            
+            <div class="card-body overflow-y-auto p-3 flex-grow-1" id="cuerpo-chatbot" style="font-size: 0.85rem; background-color: #f8fafc;">
+                <div class="bg-white p-3 rounded-3 mb-2 border shadow-sm text-dark max-w-[85%]">
+                    Hola 👋. Soy el asistente de la plataforma de informes 2026. ¿Tienes dudas sobre el código de Apps Script, las actividades del mes o algún error del sistema?
+                </div>
+            </div>
+            
+            <div class="card-footer bg-white border-top-0 p-2">
+                <div class="input-group">
+                    <input type="text" id="input-chatbot" class="form-control form-control-sm border-light-subtle bg-light text-dark rounded-start-pill px-3" placeholder="Escribe tu duda aquí..." onkeypress="if(event.key === 'Enter') enviarMensajeChatbot()">
+                    <button class="btn btn-primary btn-sm rounded-end-pill px-3" style="background-color: #003366;" onclick="enviarMensajeChatbot()"><i class="bi bi-send-fill"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end">
+            <button id="btn-chatbot" class="btn btn-primary rounded-circle shadow-lg d-flex align-items-center justify-content-center border-2 hover-scale transition-all" 
+                    style="width: 60px; height: 60px; background-color: #003366; border-color: #eab308; color: white;" onclick="toggleChatbot()">
+                <i class="bi bi-chat-dots-fill fs-2"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function toggleChatbot() {
+            const ventana = document.getElementById('ventana-chatbot');
+            ventana.classList.toggle('d-none');
+            if (typeof adjustAutoExpandTextareas === 'function') {
+                adjustAutoExpandTextareas();
+            }
+        }
+
+        function enviarMensajeChatbot() {
+            const input = document.getElementById('input-chatbot');
+            const cuerpo = document.getElementById('cuerpo-chatbot');
+            const texto = input.value.trim();
+            if(!texto) return;
+
+            // 1. Renderizar mensaje del usuario
+            cuerpo.innerHTML += `<div class="bg-primary text-white p-2 rounded-3 mb-2 ms-auto text-start shadow-sm max-w-[85%]" style="background-color: #003366 !important;">${texto}</div>`;
+            input.value = "";
+            cuerpo.scrollTop = cuerpo.scrollHeight;
+
+            // 2. Renderizar indicador de carga temporal
+            const idCarga = "carga-" + Date.now();
+            cuerpo.innerHTML += `<div class="text-muted small p-2 mb-2 fst-italic" id="${idCarga}"><i class="bi bi-three-dots animated flash infinite"></i> Escribiendo...</div>`;
+            cuerpo.scrollTop = cuerpo.scrollHeight;
+
+            // 3. Ejecutar consulta al backend de Apps Script
+            google.script.run
+                .withSuccessHandler(function(respuesta) {
+                    const elCarga = document.getElementById(idCarga);
+                    if (elCarga) elCarga.remove();
+                    // Convierte saltos de línea a formato HTML
+                    const respuestaFormateada = respuesta.replace(/\n/g, '<br>');
+                    cuerpo.innerHTML += `<div class="bg-white p-3 rounded-3 mb-2 border text-dark shadow-sm max-w-[85%]"><strong>IA:</strong><br>${respuestaFormateada}</div>`;
+                    cuerpo.scrollTop = cuerpo.scrollHeight;
+                })
+                .withFailureHandler(function(err) {
+                    const elCarga = document.getElementById(idCarga);
+                    if (elCarga) elCarga.remove();
+                    cuerpo.innerHTML += `<div class="alert alert-danger p-2 rounded-3 mb-2 small shadow-sm">Error de conexión.</div>`;
+                })
+                .obtenerRespuestaIA(texto);
+        }
+    </script>
+
 </body>
 
 </html>
