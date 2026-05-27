@@ -872,6 +872,29 @@
             cuerpo.innerHTML += `<div class="text-muted small p-2 mb-2 fst-italic" id="${idCarga}"><i class="bi bi-three-dots animated flash infinite"></i> Escribiendo...</div>`;
             cuerpo.scrollTop = cuerpo.scrollHeight;
 
+            // Obtener contexto de la aplicación para mandarlo a la IA
+            let contextoApp = "El usuario está en la página principal, aún no se ha identificado.";
+            if (typeof currentStep !== 'undefined') {
+                const userSession = localStorage.getItem('app_session_user');
+                let nombreUser = "";
+                let rutUser = "";
+                if (userSession) {
+                    try {
+                        const parsed = JSON.parse(userSession);
+                        nombreUser = parsed.nombre || "";
+                        rutUser = parsed.rut || "";
+                    } catch(e){}
+                }
+                
+                if (currentStep === 1) {
+                    contextoApp = "El usuario está en el Paso 1 (Identificación). Aún no inicia sesión.";
+                } else if (currentStep === 2) {
+                    contextoApp = "El usuario ha iniciado sesión. Nombre: " + nombreUser + " (RUT: " + rutUser + "). Actualmente está en el Paso 2 (Wizard de Formulario), rellenando sus datos contractuales, actividades y jefatura.";
+                } else if (currentStep === 3) {
+                    contextoApp = "El usuario ha iniciado sesión. Nombre: " + nombreUser + " (RUT: " + rutUser + "). Está en el Paso 3 (Carga de Archivo). Ya generó sus informes y debe descargar el de REMU y el de Transparencia, firmarlos, emitir la boleta en el SII y subirlos.";
+                }
+            }
+
             // 3. Ejecutar consulta al backend de Apps Script
             google.script.run
                 .withSuccessHandler(function(respuesta) {
@@ -887,7 +910,7 @@
                     if (elCarga) elCarga.remove();
                     cuerpo.innerHTML += `<div class="alert alert-danger p-2 rounded-3 mb-2 small shadow-sm">Error de conexión.</div>`;
                 })
-                .obtenerRespuestaIA(texto);
+                .obtenerRespuestaIA(texto, contextoApp);
         }
     </script>
 
