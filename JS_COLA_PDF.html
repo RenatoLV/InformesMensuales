@@ -1,0 +1,85 @@
+<script>
+// Una consulta agrupada por minuto. Nunca consulta nómina ni vuelve a generar.
+let temporizadorPDF_, consultandoPDF_ = false;
+function pendienteIndividualPDF_() {
+    try { return JSON.parse(sessionStorage.getItem('app_pdf_pendiente') || 'null'); } catch(e) { return null; }
+}
+function panelColaPDF_(texto) {
+    let panel = document.getElementById('estado-cola-pdf');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'estado-cola-pdf';
+        panel.className = 'alert alert-info m-3';
+        panel.setAttribute('role','status');
+        document.body.appendChild(panel);
+    }
+    panel.textContent = texto;
+}
+function iniciarSeguimientoPDF_() {
+    clearTimeout(temporizadorPDF_);
+    panelColaPDF_('Su solicitud está guardada. Los PDF se procesan por turnos y se guardan aunque cierre la pantalla. El estado se actualiza cada minuto.');
+    temporizadorPDF_ = setTimeout(revisarColaPDF_, 30000 + Math.random()*5000);
+}
+async function revisarColaPDF_() {
+    if (consultandoPDF_ || tutorialActivo) return;
+    if (document.hidden) { temporizadorPDF_ = setTimeout(revisarColaPDF_,60000); return; }
+    const individual = pendienteIndividualPDF_();
+    const lote = typeof batchList !== 'undefined' ? batchList.filter(b => b.ticketPDF && b.status === 'EN COLA') : [];
+    const tickets = [...new Set([individual?.ticket,...lote.map(b => b.ticketPDF)].filter(Boolean))];
+    if (!tickets.length) return;
+    consultandoPDF_ = true;
+    try {
+        for (let i=0;i<tickets.length;i+=50) {
+            const respuestas = await solicitarBackend('consultarGeneracionesPDF',tickets.slice(i,i+50));
+            respuestas.forEach(({ticket,resultado:r}) => {
+                if (r.encolado) return;
+                const item = lote.find(b => b.ticketPDF === ticket);
+                if (item) {
+                    item.status = r.exito ? 'GENERADO' : 'ERROR';
+                    if (r.exito) item.links = {remu:r.urlRemu,transp:r.urlTransp,docs:''};
+                    guardarEstadoLote();
+                    configurarPaso3Lote();
+                }
+                if (individual?.ticket === ticket) {
+                    if (!r.exito) {
+                        panelColaPDF_(r.error + ' Conserve su comprobante y contacte a soporte.');
+                        // Detener consultas automáticas de un error terminal, conservando ticket.
+                        sessionStorage.setItem('app_pdf_error',ticket);
+                    } else {
+                        const actual = recopilarDatos();
+                        const canon = rut => String(rut || '').replace(/[.\s]/g,'').toUpperCase();
+                        if (canon(actual.rut) === canon(individual.rut) && actual.mesSeleccionado === individual.mes &&
+                            String(actual.anio || '') === String(individual.anio || '')) {
+                            configurarPaso3Individual(r);
+                            procesoBloqueado = true;
+                            sessionStorage.setItem('app_session_locked','true');
+                            sessionStorage.setItem('app_session_links',JSON.stringify({remu:r.urlRemu,transp:r.urlTransp}));
+                            actualizarEstadoInforme('Informe generado · falta adjuntar la firma','warning');
+                            sessionStorage.removeItem('app_pdf_pendiente');
+                            sessionStorage.removeItem('app_pdf_error');
+                            panelColaPDF_('Sus dos PDF están disponibles para descargar y firmar.');
+                        } else {
+                            panelColaPDF_('Los PDF ya están guardados. Ingrese al funcionario y periodo correspondientes para recuperarlos.');
+                            sessionStorage.removeItem('app_pdf_pendiente');
+                        }
+                    }
+                }
+            });
+        }
+    } catch(e) {
+        panelColaPDF_('No se pudo actualizar el estado. La solicitud sigue guardada; volveremos a consultar.');
+    } finally {
+        consultandoPDF_ = false;
+        const p = pendienteIndividualPDF_();
+        if ((p && sessionStorage.getItem('app_pdf_error') !== p.ticket) ||
+            (typeof batchList !== 'undefined' && batchList.some(b => b.ticketPDF && b.status === 'EN COLA'))) {
+            temporizadorPDF_ = setTimeout(revisarColaPDF_,60000 + Math.random()*5000);
+        }
+    }
+}
+if (typeof window !== 'undefined') window.addEventListener('load', () => {
+    if (pendienteIndividualPDF_() || (typeof batchList !== 'undefined' && batchList.some(b => b.ticketPDF && b.status === 'EN COLA'))) {
+        iniciarSeguimientoPDF_();
+    }
+});
+</script>

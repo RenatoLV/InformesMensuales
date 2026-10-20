@@ -1,7 +1,41 @@
+# Dependencias y salidas locales
 node_modules/
+output/
+tmp/
 dist/
-.env
-api-server/informestransparenciaactiva-c8ecfb1b9e79.json
-*.bak
+coverage/
+preview/
 *.log
+*.bak
+*.tmp
+*.zip
+*.tgz
+*.bundle
+__pycache__/
+
+# Documentos operativos y capturas: no son código fuente
+*.docx
+*.pdf
+docs/*.jpg
+docs/informe_requisitos/
+cloud-run/plantilla-html/*.html
+cloud-run/plantilla-html/referencia/
+
+# Configuración local, claves y auditoría de despliegues anteriores
 .clasp.json
+.clasprc.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+*credential*.json
+*service-account*.json
+informestransparenciaactiva-*.json
+cloud-run/auditoria/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini

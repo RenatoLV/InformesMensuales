@@ -1,0 +1,35 @@
+<style>
+#modalEditorWord .modal-body { background: #f7f9fc; }
+.editor-workspace { background: #e8edf3; border: 1px solid #ccd8e2; border-radius: 12px; overflow: hidden; }
+#modalEditorWord .ql-toolbar { background: #fff; border: 0; border-bottom: 1px solid #d8e1e9; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 6px; }
+#modalEditorWord .ql-toolbar .ql-formats { margin-right: 8px; padding-right: 10px; border-right: 1px solid #e4eaf0; }
+#modalEditorWord .ql-toolbar .ql-formats:last-child { border-right: 0; }
+#modalEditorWord .ql-toolbar button { width: 30px; height: 30px; border-radius: 5px; }
+#modalEditorWord .ql-toolbar button:hover, #modalEditorWord .ql-toolbar button.ql-active { background: #e8f2f9; }
+#modalEditorWord .ql-container { border: 0; padding: 20px; height: min(430px, 48vh) !important; overflow: auto; }
+#modalEditorWord .ql-editor { max-width: 820px; min-height: 100%; height: auto; margin: 0 auto; padding: 36px 44px; background: #fff; box-shadow: 0 2px 8px #263e5215; color: #263747; line-height: 1.7; font-size: 15px; overflow-y: visible; }
+#modalEditorWord .ql-editor h1, #modalEditorWord .ql-editor h2, #modalEditorWord .ql-editor h3 { margin-bottom: 8px; }
+.editor-status-bar { font-size: .75rem; color: #607587; padding: 12px 2px 0; }
+#modalEditorWord .ql-picker.ql-header { width: 128px; }
+#modalEditorWord .ql-picker.ql-header .ql-picker-label::before,
+#modalEditorWord .ql-picker.ql-header .ql-picker-item::before { content: 'Texto normal'; }
+#modalEditorWord .ql-picker.ql-header [data-value="1"]::before { content: 'Título 1'; }
+#modalEditorWord .ql-picker.ql-header [data-value="2"]::before { content: 'Título 2'; }
+#modalEditorWord .ql-picker.ql-header [data-value="3"]::before { content: 'Título 3'; }
+#modalEditorWord .ql-picker.ql-size .ql-picker-label::before,
+#modalEditorWord .ql-picker.ql-size .ql-picker-item::before { content: 'Mediano'; }
+#modalEditorWord .ql-picker.ql-size [data-value="small"]::before { content: 'Pequeño'; }
+#modalEditorWord .ql-picker.ql-size [data-value="large"]::before { content: 'Grande'; }
+#modalEditorWord .ql-picker.ql-size [data-value="huge"]::before { content: 'Muy grande'; }
+#modalEditorWord .editor-fullscreen { width: 100%; max-width: none; height: 100%; margin: 0; }
+#modalEditorWord .editor-fullscreen .modal-content { height: 100%; max-height: none; border-radius: 0 !important; }
+#modalEditorWord .editor-fullscreen .modal-body { display: flex; flex-direction: column; }
+#modalEditorWord .editor-fullscreen .editor-workspace { flex: 1; display: flex; flex-direction: column; min-height: 150px; }
+#modalEditorWord .editor-fullscreen .ql-container { flex: 1; min-height: 0; height: auto !important; }
+@media(max-width: 767px) {
+    #modalEditorWord .modal-body { padding: 16px !important; }
+    #modalEditorWord .ql-container { padding: 10px; }
+    #modalEditorWord .ql-editor { padding: 20px; }
+    .editor-status-bar { flex-direction: column; }
+}
+</style>

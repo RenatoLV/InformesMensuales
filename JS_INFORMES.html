@@ -1,0 +1,701 @@
+<script>
+    /**
+     * ==========================================
+     * CONFIGURACIÓN DE QUILL.JS Y FUENTES
+     * ==========================================
+     */
+    let quillEditor = null;
+    let seleccionEditor = null;
+    function actualizarEstadoEditor() {
+        const texto = quillEditor.getText().trim();
+        const palabras = texto ? texto.split(/\s+/).length : 0;
+        const contador = document.getElementById('editor-contador');
+        contador.textContent = palabras + ' palabras · ' + texto.length.toLocaleString('es-CL') + ' / 30.000 caracteres';
+        contador.classList.toggle('text-danger', texto.length > 30000);
+        document.getElementById('btnAplicarEditor').disabled = texto.length > 30000;
+    }
+    function alternarPantallaEditor() {
+        const dialogo = document.querySelector('#modalEditorWord .modal-dialog');
+        const completa = dialogo.classList.toggle('editor-fullscreen');
+        const boton = document.getElementById('btnPantallaEditor');
+        boton.setAttribute('aria-pressed', String(completa));
+        boton.innerHTML = '<i class="bi bi-arrows-fullscreen me-1"></i>' + (completa ? 'Volver a ventana' : 'Pantalla completa');
+        quillEditor.focus();
+    }
+    function insertarApartadoEditor() {
+        if (!quillEditor || tutorialActivo) return;
+        const posicion = Math.min(seleccionEditor ? seleccionEditor.index : quillEditor.getLength() - 1, quillEditor.getLength() - 1);
+        const anterior = posicion > 0 ? quillEditor.getText(posicion - 1, 1) : '\n';
+        const prefijo = anterior === '\n' ? '' : '\n';
+        const titulo = 'Nombre de la actividad';
+        quillEditor.history.cutoff();
+        quillEditor.insertText(posicion, prefijo + titulo + '\nDescriba las acciones realizadas y los avances del periodo.\n', 'user');
+        quillEditor.formatLine(posicion + prefijo.length, titulo.length, {header: 2}, 'user');
+        quillEditor.formatLine(posicion + prefijo.length + titulo.length + 1, 1, {header: false}, 'user');
+        quillEditor.setSelection(posicion + prefijo.length, titulo.length, 'user');
+        quillEditor.history.cutoff();
+    }
+
+document.addEventListener('DOMContentLoaded', function () {
+    if (document.getElementById('quillEditorContainer') && typeof Quill !== 'undefined') {
+        
+        // Registrar fuentes en la lista blanca de Quill
+        const Font = Quill.import('formats/font');
+        Font.whitelist = [
+            'sans-serif', 
+            'serif', 
+            'monospace', 
+            'arial', 
+            'georgia', 
+            'courier', 
+            'times-new-roman', 
+            'tahoma', 
+            'trebuchet', 
+            'verdana'
+        ];
+        Quill.register(Font, true);
+
+        // Inicializar Quill
+        quillEditor = new Quill('#quillEditorContainer', {
+            theme: 'snow',
+            formats: ['font', 'size', 'header', 'bold', 'italic', 'underline', 'strike', 'color', 'background', 'list', 'indent', 'align'],
+            modules: {
+                history: {delay: 500, maxStack: 100, userOnly: true},
+                toolbar: [
+                    [{
+                        'font': [
+                            'sans-serif', 
+                            'serif', 
+                            'monospace', 
+                            'arial', 
+                            'georgia', 
+                            'courier', 
+                            'times-new-roman', 
+                            'tahoma', 
+                            'trebuchet', 
+                            'verdana'
+                        ]
+                    }, { 'size': ['small', false, 'large', 'huge'] }],
+                    [{header: [1, 2, 3, false]}],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                    [{indent: '-1'}, {indent: '+1'}],
+                    [{ 'align': [] }],
+                    ['clean']
+                ]
+            }
+        });
+        quillEditor.root.setAttribute('aria-label', 'Contenido de Actividades y Avances');
+        quillEditor.root.setAttribute('spellcheck', 'true');
+        quillEditor.root.setAttribute('lang', 'es-CL');
+        const nombres = {bold:'Negrita (Ctrl + B)', italic:'Cursiva (Ctrl + I)', underline:'Subrayado (Ctrl + U)', strike:'Tachado', color:'Color de texto', background:'Resaltar texto', font:'Fuente', size:'Tamaño de texto', header:'Estilo de párrafo', align:'Alineación', clean:'Quitar formato'};
+        document.querySelectorAll('#modalEditorWord .ql-toolbar button, #modalEditorWord .ql-picker').forEach(control => {
+            let nombre;
+            for (const clave of Object.keys(nombres)) if (control.classList.contains('ql-' + clave)) nombre = nombres[clave];
+            if (control.classList.contains('ql-list')) nombre = control.value === 'ordered' ? 'Lista numerada' : 'Lista con viñetas';
+            if (control.classList.contains('ql-indent')) nombre = control.value === '+1' ? 'Aumentar sangría' : 'Reducir sangría';
+            if (nombre) {
+                control.title = nombre;
+                const objetivo = control.querySelector('.ql-picker-label') || control;
+                objetivo.setAttribute('aria-label', nombre);
+            }
+        });
+        quillEditor.on('text-change', actualizarEstadoEditor);
+        quillEditor.on('selection-change', rango => { if (rango) seleccionEditor = rango; });
+        document.getElementById('modalEditorWord').addEventListener('shown.bs.modal', () => quillEditor.focus());
+    }
+});
+
+    // Abrir Modal e importar contenido (HTML o Texto Plano)
+    function abrirEditorWord() {
+        if (tutorialActivo) return;
+        if (!quillEditor) return alert('El editor no está disponible. Puede escribir las actividades directamente en el campo.');
+
+        const textoActual = document.getElementById('actividades').value;
+        const formato = document.getElementById('actividadesFormato').value;
+
+        try {
+            const delta = formato ? JSON.parse(formato) : null;
+            const textoDelta = delta && delta.ops.map(op => typeof op.insert === 'string' ? op.insert : '').join('').trim();
+            if (delta && textoDelta === textoActual.trim()) quillEditor.setContents(delta);
+            else quillEditor.setText(textoActual);
+        } catch(e) { quillEditor.setText(textoActual); }
+        quillEditor.history.clear();
+        seleccionEditor = null;
+        actualizarEstadoEditor();
+
+        const modal = new bootstrap.Modal(document.getElementById('modalEditorWord'));
+        modal.show();
+    }
+
+    // Guardar los datos procesados en el modal hacia los inputs del formulario
+    function guardarFormatoWord() {
+        if (!quillEditor || tutorialActivo) return;
+
+        const plainText = quillEditor.getText().trim();
+        if (plainText.length > 30000) return alert('Las actividades no pueden superar 30.000 caracteres.');
+        const formato = JSON.stringify(quillEditor.getContents());
+        if (formato.length > 200000 || quillEditor.getContents().ops.length > 2000) return alert('Hay demasiado formato. Simplifique los estilos antes de aplicarlos.');
+
+        document.getElementById('actividades').value = plainText;
+        document.getElementById('actividadesFormato').value = formato;
+        guardarBorradorInforme();
+        adjustAutoExpandTextareas();
+
+        const modalEl = document.getElementById('modalEditorWord');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+    }
+
+    /**
+     * ==========================================
+     * LÓGICA DE FECHAS Y LICENCIAS
+     * ==========================================
+     */
+
+    function calcularFechaFinUnica() {
+        const motivoSelect = document.getElementById('ausenciaMotivo');
+        const desdeInput = document.getElementById('ausenciaDesde');
+        const diasInput = document.getElementById('ausenciaDias');
+        const hastaInput = document.getElementById('ausenciaHasta');
+
+        if (desdeInput.value && diasInput.value) {
+            let fecha = new Date(desdeInput.value + 'T00:00:00');
+            const dias = parseInt(diasInput.value);
+            const esVacaciones = (motivoSelect.value === "8");
+
+            if (dias > 0) {
+                if (esVacaciones) {
+                    let diasPorSumar = dias - 1;
+                    while (diasPorSumar > 0) {
+                        fecha.setDate(fecha.getDate() + 1);
+                        const diaSemana = fecha.getDay();
+                        if (diaSemana !== 0 && diaSemana !== 6) {
+                            diasPorSumar--;
+                        }
+                    }
+                } else {
+                    fecha.setDate(fecha.getDate() + (dias - 1));
+                }
+
+                const yyyy = fecha.getFullYear();
+                const mm = String(fecha.getMonth() + 1).padStart(2, '0');
+                const dd = String(fecha.getDate()).padStart(2, '0');
+                hastaInput.value = `${yyyy}-${mm}-${dd}`;
+            } else {
+                hastaInput.value = "";
+            }
+        } else {
+            hastaInput.value = "";
+        }
+    }
+
+    function limpiarAusenciaUnica() {
+        document.getElementById('ausenciaMotivo').value = "";
+        document.getElementById('ausenciaDesde').value = "";
+        document.getElementById('ausenciaDias').value = "";
+        document.getElementById('ausenciaHasta').value = "";
+    }
+
+    /**
+     * ==========================================
+     * MÓDULO DE NORMALIZACIÓN Y SIMILITUD
+     * ==========================================
+     */
+    function normalizarRegistro(item) {
+        if (!item) return item;
+        const origenRaw = (item.origen || "").toUpperCase().trim();
+        if (origenRaw.includes("SUMA ALZADA")) {
+            item.programa = "Honorario Suma Alzada";
+        }
+        return item;
+    }
+
+    function toTitleCase(str) {
+        return str.replace(/\w\S*/g, function (txt) {
+            return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+        });
+    }
+
+    function limpiarParaSimilitud(texto) {
+        if (!texto) return "";
+        return texto.toUpperCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/ANEXO\s*\d+/g, "")
+            .replace(/\(\d+\)/g, "")
+            .replace(/[^A-Z0-9\s]/g, "")
+            .trim();
+    }
+
+    function calcularSimilitud(s1, s2) {
+        const c1 = limpiarParaSimilitud(s1);
+        const c2 = limpiarParaSimilitud(s2);
+        if (!c1 || !c2) return 0;
+        if (c1 === c2) return 100;
+        const filterWords = (str) => str.split(/\s+/).filter(w => w.length > 3);
+        const words1 = filterWords(c1);
+        const words2 = filterWords(c2);
+        let matches = 0;
+        words1.forEach(w => {
+            if (words2.includes(w)) matches++;
+        });
+        const maxWords = Math.max(words1.length, words2.length);
+        return maxWords === 0 ? 0 : Math.round((matches / maxWords) * 100);
+    }
+
+    /**
+     * ==========================================
+     * FUNCIONES CORE DE BÚSQUEDA INDIVIDUAL
+     * ==========================================
+     */
+
+    let busquedaEnCurso = false;
+    let ultimoFuncionarioCargado = null;
+    function buscar(event) {
+        if (event) event.preventDefault();
+        if (tutorialActivo) return TutorialPractico.identificar();
+        if (busquedaEnCurso) return;
+        let rut = document.getElementById('rutSearch').value;
+        if (!rut) return alert("Por favor, ingrese un RUT válido.");
+
+        rut = formatearRutVisual(rut);
+        document.getElementById('rutSearch').value = rut;
+        if (!esRutIngresoValido(rut)) return alert('El RUT no es válido. Revise los números y el dígito verificador.');
+
+        toggleLoader(true, "Buscando funcionario...");
+        busquedaEnCurso = true;
+
+        backendControlado()
+            .withSuccessHandler((data) => {
+                busquedaEnCurso = false;
+                toggleLoader(false);
+                if (data.encontrado) {
+                    data = normalizarRegistro(data);
+                    data.rut = formatearRutVisual(data.rut);
+
+                    const ausenciasContainer = document.getElementById('sec-ausencias');
+                    if (ausenciasContainer) ausenciasContainer.classList.remove('d-none');
+
+                    llenarFormulario(data);
+                    activarVistaLogeado(data, true);
+
+                    ultimoFuncionarioCargado = data;
+                    if (typeof window !== 'undefined') window.ultimoFuncionarioCargado = data;
+
+                    if (data.sesionPendiente) {
+                        mostrarDialogoSesionPendiente(data);
+                    } else if (data.sesionFinalizada) {
+                        sessionStorage.setItem('app_session_locked', 'true');
+                        sessionStorage.setItem('app_session_links', JSON.stringify(data.links));
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Proceso Finalizado',
+                                text: 'El informe correspondiente a este período ya fue entregado y finalizado.',
+                                confirmButtonText: 'Ver Documentos',
+                                confirmButtonColor: '#0d6efd'
+                            });
+                        } else {
+                            alert("✅ Proceso finalizado.");
+                        }
+                        configurarPaso3Individual(data.links);
+                        document.getElementById('upload-ui-single').classList.add('d-none');
+                        document.getElementById('locked-alert-3').innerHTML = '<i class="bi bi-check-circle-fill"></i> PROCESO FINALIZADO';
+                        document.getElementById('locked-alert-3').classList.replace('alert-danger', 'alert-success');
+                    } else {
+                        sessionStorage.removeItem('app_session_locked');
+                        sessionStorage.removeItem('app_session_links');
+                        restaurarBorradorInforme(data.rut);
+                        goToStep(2);
+                    }
+
+                } else {
+                    if (data.errorCritico) {
+                        alert("ERROR EN LA PLANILLA: " + data.errorCritico);
+                    } else {
+                        ofrecerAlertaNomina(rut);
+                    }
+                }
+            })
+            .withFailureHandler((e) => {
+                busquedaEnCurso = false;
+                toggleLoader(false);
+                alert("Error de conexión: " + e);
+            })
+            .buscarFuncionario(limpiarRutIngreso(rut).slice(0, -1) + '-' + limpiarRutIngreso(rut).slice(-1));
+    }
+
+    function mostrarDialogoSesionPendiente(data) {
+        const nombre = data.nombre || 'Funcionario';
+        const periodoTxt = data.periodo ? (data.periodo.mes + ' ' + data.periodo.anio) : 'este período';
+
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Proceso Pendiente Detectado',
+                html: `
+                    <div class="text-start">
+                        <p class="mb-2">Estimado(a) <strong>${escaparHtml(nombre)}</strong>, su informe para <strong>${escaparHtml(periodoTxt)}</strong> ya fue generado y se encuentra a la espera de adjuntar los archivos firmados.</p>
+                        <p class="text-muted small mb-0">Seleccione si desea reanudar para subir sus archivos o pedir el reinicio por correo a Soporte:</p>
+                    </div>
+                `,
+                icon: 'warning',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonText: '<i class="bi bi-arrow-repeat me-1"></i> Reanudar Proceso',
+                confirmButtonColor: '#0d6efd',
+                denyButtonText: '<i class="bi bi-envelope me-1"></i> Pedir Reinicio por Correo',
+                denyButtonColor: '#ffc107',
+                cancelButtonText: 'Volver',
+                cancelButtonColor: '#6c757d',
+                allowOutsideClick: false,
+                customClass: {
+                    denyButton: 'text-dark fw-bold'
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    sessionStorage.setItem('app_session_locked', 'true');
+                    sessionStorage.setItem('app_session_links', JSON.stringify(data.links));
+                    configurarPaso3Individual(data.links);
+                    procesoBloqueado = true;
+                    const lockMsg = document.getElementById('locked-message');
+                    if (lockMsg) lockMsg.classList.remove('d-none');
+                } else if (result.isDenied) {
+                    sessionStorage.removeItem('app_session_locked');
+                    sessionStorage.removeItem('app_session_links');
+                    solicitarReinicioCorreo(data);
+                } else {
+                    sessionStorage.removeItem('app_session_locked');
+                    sessionStorage.removeItem('app_session_links');
+                    goToStep(1);
+                }
+            });
+        } else {
+            const reanudar = confirm("Tiene un proceso pendiente para " + periodoTxt + ".\n\n• ACEPTAR: Reanudar proceso para subir archivos.\n• CANCELAR: Pedir reinicio por correo a Soporte.");
+            if (reanudar) {
+                sessionStorage.setItem('app_session_locked', 'true');
+                sessionStorage.setItem('app_session_links', JSON.stringify(data.links));
+                configurarPaso3Individual(data.links);
+                procesoBloqueado = true;
+                const lockMsg = document.getElementById('locked-message');
+                if (lockMsg) lockMsg.classList.remove('d-none');
+            } else {
+                sessionStorage.removeItem('app_session_locked');
+                sessionStorage.removeItem('app_session_links');
+                solicitarReinicioCorreo(data);
+            }
+        }
+    }
+
+    function solicitarReinicioCorreo(data) {
+        const to = 'renato.alvarez@municoquimbo.cl';
+        const periodoTxt = (data && data.periodo && data.periodo.mes) ? (data.periodo.mes + ' ' + data.periodo.anio) : (document.getElementById('mes')?.value || 'Período actual');
+        const rutTxt = (data && data.rut) || document.getElementById('rutFull')?.value || document.getElementById('rutSearch')?.value || '';
+        const nombreTxt = (data && data.nombre) || document.getElementById('nombre')?.value || 'Funcionario';
+        const dirTxt = (data && data.direccion) || document.getElementById('direccion')?.value || 'No especificada';
+        const su = 'Solicitud de reinicio de informe - ' + rutTxt + ' - ' + nombreTxt;
+        const body = 'Hola Renato:\n\n' +
+            'Solicito el reinicio de mi proceso de informe mensual debido a que tengo una sesión pendiente y requiero modificar/generar nuevamente el informe.\n\n' +
+            '• Funcionario: ' + nombreTxt + '\n' +
+            '• RUT: ' + rutTxt + '\n' +
+            '• Dirección / Dependencia: ' + dirTxt + '\n' +
+            '• Período: ' + periodoTxt + '\n' +
+            '• Motivo: (Indique si necesita corregir actividades, modificar datos o generar nuevamente)\n\n' +
+            'Agradeceré su confirmación para volver a ingresar al sistema.\n\n' +
+            'Saludos cordiales.';
+
+        const gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) +
+            '&su=' + encodeURIComponent(su) +
+            '&body=' + encodeURIComponent(body);
+
+        if (typeof window !== 'undefined' && window.open) {
+            window.open(gmailUrl, '_blank');
+        }
+
+        if (typeof Swal !== 'undefined') {
+            const bodyEnc = encodeURIComponent(body);
+            Swal.fire({
+                icon: 'info',
+                title: 'Solicitud en Gmail',
+                html: `
+                    <div class="text-start">
+                        <p class="mb-2">Se abrió una nueva pestaña en <strong>Gmail</strong> para enviar la solicitud a <strong>${escaparHtml(to)}</strong>.</p>
+                        <div class="bg-light p-2 rounded small border text-muted mb-3 font-monospace" style="white-space: pre-wrap; max-height: 140px; overflow-y: auto;">${escaparHtml(body)}</div>
+                        <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+                            <a href="${gmailUrl}" target="_blank" class="btn btn-primary btn-sm rounded-pill px-3 fw-bold">
+                                <i class="bi bi-google me-1"></i> Abrir en Gmail de nuevo
+                            </a>
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="copiarPlantillaReinicio('${bodyEnc}')">
+                                <i class="bi bi-clipboard me-1"></i> Copiar plantilla
+                            </button>
+                        </div>
+                    </div>
+                `,
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#0d6efd'
+            });
+        }
+    }
+
+    function copiarPlantillaReinicio(bodyEncoded) {
+        const to = 'renato.alvarez@municoquimbo.cl';
+        const body = decodeURIComponent(bodyEncoded || '');
+        const textoCompleto = 'Destinatario: ' + to + '\n\n' + body;
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(textoCompleto).then(function() {
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Copiado!',
+                        text: 'La plantilla fue copiada al portapapeles. Puede pegarla en su correo de Gmail.',
+                        timer: 2200,
+                        showConfirmButton: false
+                    });
+                } else {
+                    alert('Plantilla copiada al portapapeles.');
+                }
+            }).catch(function() {
+                alert('No se pudo copiar automáticamente.');
+            });
+        } else {
+            alert('Portapapeles no soportado.');
+        }
+    }
+
+    function solicitarReinicioDesdePaso3() {
+        const data = ultimoFuncionarioCargado || (typeof window !== 'undefined' ? window.ultimoFuncionarioCargado : null) || {
+            rut: document.getElementById('rutFull')?.value || document.getElementById('rutSearch')?.value || '',
+            nombre: document.getElementById('nombre')?.value || 'Funcionario',
+            direccion: document.getElementById('direccion')?.value || '',
+            periodo: {
+                mes: document.getElementById('mes')?.value || '',
+                anio: new Date().getFullYear()
+            }
+        };
+        solicitarReinicioCorreo(data);
+    }
+
+    // --- FORMULARIOS ---
+
+    function llenarFormulario(data) {
+        if (typeof avanzarWizard === 'function') avanzarWizard(1);
+        document.getElementById('inputJefaturaNombre').value = "";
+        document.getElementById('inputCargo').value = "";
+        document.getElementById('inputDirJefatura').value = "";
+        document.getElementById('selectJefatura').value = "";
+        document.getElementById('chkSubrogante').checked = false;
+
+        document.getElementById('nombre').value = data.nombre || "";
+        document.getElementById('programa').value = data.programa || "";
+        document.getElementById('rutFull').value = data.rut || "";
+        document.getElementById('rutVisual').value = data.rut || "";
+        document.getElementById('nacimiento').value = data.nacimiento || "";
+        document.getElementById('direccion').value = data.direccion || "";
+
+        // Resetear campo HTML oculto
+        if (document.getElementById('funcionHtml')) {
+            document.getElementById('funcionHtml').value = "";
+        }
+
+        // La función contractual proviene exclusivamente de la nómina.
+        if (data.funcion && data.funcion.length > 5) {
+            document.getElementById('funcionVisual').value = data.funcion;
+        } else {
+            document.getElementById('funcionVisual').value = "";
+        }
+
+        // 2. Contacto (Teléfono y Correo)
+        document.getElementById('fono').value = data.fono || data.fonoHistorico || "";
+        document.getElementById('correo').value = data.email || data.correoHistorico || "";
+
+        // 3. Jefatura (Prioriza sugerencia de nómina, luego histórica)
+        if (data.jefaturaSugerida) {
+            window.sugerenciaJefaturaPendiente = data.jefaturaSugerida;
+            if (document.getElementById('listJefaturas').options.length > 0) {
+                autocompletarJefatura(data.jefaturaSugerida);
+                window.sugerenciaJefaturaPendiente = null;
+            }
+        } else if (data.jefaturaHistorica && data.jefaturaHistorica.nombre) {
+            window.sugerenciaJefaturaPendiente = data.jefaturaHistorica.nombre;
+            document.getElementById('inputJefaturaNombre').value = data.jefaturaHistorica.nombre;
+            document.getElementById('selectJefatura').value = data.jefaturaHistorica.nombre;
+            document.getElementById('inputCargo').value = data.jefaturaHistorica.cargo;
+            document.getElementById('inputDirJefatura').value = data.jefaturaHistorica.direccion;
+
+            if (document.getElementById('listJefaturas').options.length > 0) {
+                autocompletarJefatura(data.jefaturaHistorica.nombre);
+                window.sugerenciaJefaturaPendiente = null;
+            }
+        }
+
+        // 4. Actividades
+        document.getElementById('actividades').value = data.actividadesAnteriores || '';
+        document.getElementById('actividadesFormato').value = '';
+    }
+
+    function toggleInput(select, inputId) {
+        const input = document.getElementById(inputId);
+        if (select.value === 'SI') {
+            input.disabled = false;
+            input.focus();
+        } else {
+            input.disabled = true;
+            input.value = "";
+        }
+    }
+
+    function recopilarDatos() {
+        let jefaturaNombre = document.getElementById('inputJefaturaNombre').value;
+        let jefaturaDireccion = document.getElementById('inputDirJefatura').value;
+        const esSubrogante = document.getElementById('chkSubrogante').checked;
+
+        if (esSubrogante && !jefaturaNombre.toUpperCase().includes("(S)")) {
+            jefaturaNombre += " (S)";
+        }
+
+        let strLicenciaDoc = "NO PRESENTA";
+        let strEnfermedadDoc = "NO PRESENTA";
+        let strVacacionesDoc = "NO PRESENTA";
+        let backendLicenciaTexto = "NO PRESENTA";
+        let backendPeriodosTexto = "---";
+
+        const selectEl = document.getElementById('ausenciaMotivo');
+        const motivoVal = parseInt(selectEl.value);
+        const desde = document.getElementById('ausenciaDesde').value;
+        const hasta = document.getElementById('ausenciaHasta').value;
+        const dias = document.getElementById('ausenciaDias').value;
+
+        if (motivoVal && desde && hasta) {
+            const textoMotivo = selectEl.options[selectEl.selectedIndex].text;
+            const fmt = (iso) => {
+                const [y, m, d] = iso.split('-');
+                return `${d}/${m}/${y}`;
+            };
+            const rango = `${fmt(desde)} al ${fmt(hasta)} (${dias} días)`;
+
+            backendLicenciaTexto = textoMotivo;
+            backendPeriodosTexto = rango;
+
+            if (motivoVal === 1) strLicenciaDoc = rango;
+            else if (motivoVal === 8) strVacacionesDoc = rango;
+            else strEnfermedadDoc = `${textoMotivo}: ${rango}`;
+        }
+
+        let rawDir = document.getElementById('direccion').value || "";
+        let cleanDir = rawDir;
+        if (rawDir.includes('/')) {
+            const parts = rawDir.split('/');
+            const validParts = parts.map(p => p.trim()).filter(p => p && p !== '-' && p !== '0');
+            if (validParts.length > 0) cleanDir = validParts[validParts.length - 1];
+        }
+
+        const valVisual = document.getElementById('funcionVisual').value;
+
+        return {
+            anio: periodoLocalMunicipal().anio - (periodoLocalMunicipal().mes === 1 && document.getElementById('mes').value === 'DICIEMBRE' ? 1 : 0),
+            rut: document.getElementById('rutFull').value,
+            nombre: document.getElementById('nombre').value,
+            programa: (document.getElementById('programa').value || "").toUpperCase(),
+            funcion: valVisual,
+            funcionHtml: '',
+            actividades: document.getElementById('actividades').value,
+            actividadesFormato: document.getElementById('actividadesFormato').value,
+            dificultades: document.getElementById('dificultades').value,
+            nacimiento: document.getElementById('nacimiento').value,
+            direccion: cleanDir,
+            datoLicencia: strLicenciaDoc,
+            datoEnfermedad: strEnfermedadDoc,
+            datoVacaciones: strVacacionesDoc,
+            licenciasTexto: backendLicenciaTexto,
+            periodosTexto: backendPeriodosTexto,
+            jefaturaNombre: jefaturaNombre,
+            jefaturaCargo: document.getElementById('inputCargo').value,
+            jefaturaDireccion: jefaturaDireccion,
+            mesSeleccionado: (document.getElementById('mes').value || "").toUpperCase(),
+            fechaInicioMes: document.getElementById('periodoMes').value,
+            fechaFinMes: document.getElementById('periodoFinMes').value,
+            fono: document.getElementById('fono').value,
+            correo: document.getElementById('correo').value
+        };
+    }
+
+    let jefaturasEnCurso = false, jefaturasCargadas = false;
+    function initJefaturas() {
+        if (tutorialActivo || jefaturasEnCurso || jefaturasCargadas) return;
+        const dataList = document.getElementById('listJefaturas');
+        if (!dataList) return;
+        jefaturasEnCurso = true;
+        backendControlado().withSuccessHandler(function(nombres) {
+            jefaturasEnCurso = false;
+            if (tutorialActivo) return;
+            jefaturasCargadas = true;
+            dataList.replaceChildren();
+            (nombres || []).forEach(nombre => { const option=document.createElement('option'); option.value=nombre; dataList.appendChild(option); });
+            if (window.sugerenciaJefaturaPendiente && !document.getElementById('selectJefatura').value.trim()) {
+                autocompletarJefatura(window.sugerenciaJefaturaPendiente);
+            }
+            window.sugerenciaJefaturaPendiente=null;
+        }).withFailureHandler(function() {
+            jefaturasEnCurso=false;
+            actualizarEstadoInforme('Catálogo de jefaturas no disponible. Puede escribir el nombre, cargo y unidad.', 'warning');
+        }).obtenerListaNombresJefaturas();
+    }
+
+    let versionJefatura = 0, ultimaJefaturaAutocompletada = '';
+    function cancelarAutocompletadoJefatura() {
+        ++versionJefatura;
+        document.body.style.cursor='default';
+        document.getElementById('inputDirJefatura').style.opacity='1';
+        const btn=document.getElementById('btnGenerar');
+        if (typeof generacionEnCurso === 'undefined' || !generacionEnCurso) {
+            btn.disabled=false;
+            btn.innerHTML='GENERAR PDF <i class="bi bi-file-earmark-pdf-fill ms-2"></i>';
+        }
+    }
+    function editarNombreJefatura(valor) {
+        cancelarAutocompletadoJefatura();
+        document.getElementById('inputJefaturaNombre').value=valor.trim();
+        if (ultimaJefaturaAutocompletada && valor.trim().toUpperCase()!==ultimaJefaturaAutocompletada) {
+            document.getElementById('inputCargo').value='';
+            document.getElementById('inputDirJefatura').value='';
+            document.getElementById('chkSubrogante').checked=false;
+            ultimaJefaturaAutocompletada='';
+        }
+    }
+    function manejarCambioSelectJefatura(valor) { autocompletarJefatura(valor); }
+    function autocompletarJefatura(nombreSeleccionado) {
+        if (tutorialActivo) return TutorialPractico.jefatura(nombreSeleccionado);
+        cancelarAutocompletadoJefatura();
+        const version=versionJefatura, nombre=String(nombreSeleccionado || '').trim();
+        document.getElementById('selectJefatura').value=nombre;
+        document.getElementById('inputJefaturaNombre').value=nombre;
+        document.getElementById('manualJefaturaContainer').classList.add('d-none');
+        if (!nombre) {
+            document.getElementById('inputCargo').value='';
+            document.getElementById('inputDirJefatura').value='';
+            document.getElementById('chkSubrogante').checked=false;
+            ultimaJefaturaAutocompletada='';
+            return;
+        }
+        const opcion=Array.from(document.getElementById('listJefaturas').options).find(o=>o.value.trim().toUpperCase()===nombre.toUpperCase());
+        if (!opcion) return; // El ingreso manual no provoca una consulta inútil ni elimina lo escrito.
+        const inputDir=document.getElementById('inputDirJefatura'), inputCargo=document.getElementById('inputCargo'), btn=document.getElementById('btnGenerar');
+        inputDir.style.opacity='0.5';
+        btn.disabled=true;btn.innerHTML='Obteniendo datos de jefatura…';
+        backendControlado().withSuccessHandler(function(datos) {
+            if (version!==versionJefatura || tutorialActivo) return;
+            cancelarAutocompletadoJefatura();
+            if (datos) {
+                inputCargo.value=String(datos.cargo || '').trim();
+                inputDir.value=String(datos.unidad || datos.direccion || '').trim();
+                document.getElementById('chkSubrogante').checked=!!datos.esSub;
+                ultimaJefaturaAutocompletada=nombre.toUpperCase();
+            }
+        }).withFailureHandler(function() {
+            if (version!==versionJefatura || tutorialActivo) return;
+            cancelarAutocompletadoJefatura();
+            actualizarEstadoInforme('Puede completar manualmente el cargo y la unidad de la jefatura.', 'warning');
+        }).buscarInfoJefaturaPorNombre(opcion.value);
+    }
+
+</script>

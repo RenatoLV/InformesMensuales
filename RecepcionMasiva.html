@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recepción masiva de informes</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#172c47;background:#f2f5fa;font-size:15px}
+    *{box-sizing:border-box}body{margin:0}main{max-width:1400px;margin:auto;padding:32px 24px 70px}
+    header{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}
+    h1{font-size:28px;margin:8px 0}h2{font-size:19px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:1px;font-weight:750;color:#2458a6}
+    p{line-height:1.6;margin:8px 0}.muted{color:#52647b}.card{background:#fff;border:1px solid #dce4ee;border-radius:14px;padding:22px;margin-bottom:18px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{display:block;font-weight:650;margin-bottom:7px}input,select,button{font:inherit}
+    input:not([type=checkbox]),select{padding:10px 12px;border:1px solid #b7c5d6;border-radius:7px;max-width:100%;background:#fff;color:#172c47}
+    input[type=file]{width:100%;font-size:13px}.folder{width:100%}.field{margin-top:15px}
+    button{border:1px solid #b7c5d6;background:#fff;color:#173b70;border-radius:7px;padding:10px 14px;font-weight:650;cursor:pointer}
+    button.primary{background:#1856ab;border-color:#1856ab;color:#fff}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #80b8ff;outline-offset:2px}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.stat{padding:16px;border-radius:10px;background:#eaf0f9}.stat strong{display:block;font-size:26px;margin-top:4px}
+    .notice{padding:12px 16px;background:#edf4ff;border-left:4px solid #2862b6;border-radius:6px;margin:14px 0;white-space:pre-wrap}
+    .error{background:#fff0ed;border-color:#bd422d}.table-wrap{overflow:auto;max-height:620px;border:1px solid #dae2ed;border-radius:8px}
+    table{width:100%;border-collapse:collapse;min-width:850px}th{text-align:left;background:#eaf0f9;position:sticky;top:0;z-index:1}th,td{padding:12px;vertical-align:top;border-bottom:1px solid #e2e8f0}td{font-size:13px}
+    td.persona{min-width:205px}td.archivos{width:24%;overflow-wrap:anywhere}.file{display:flex;align-items:start;gap:7px;margin-bottom:8px}.file span{flex:1}
+    .remove{padding:0 5px;color:#a82e26}.badge{display:inline-block;padding:4px 8px;border-radius:5px;background:#fff0d2;color:#754b05;font-size:12px;font-weight:650}.ok{background:#e3f4e9;color:#1d673c}
+    .assign{display:flex;gap:5px;margin-top:9px}.assign input{width:130px;padding:6px;font-size:12px}.assign button{padding:6px;font-size:12px}
+    .empty{text-align:center;padding:48px;color:#52647b}#review{display:flex;align-items:start;gap:10px;font-weight:400;margin-top:18px}
+    #review input{margin-top:5px}a{color:#1655a7}small{display:block;line-height:1.5}progress{width:100%;height:12px;margin:12px 0}
+    @media(max-width:700px){main{padding:20px 12px}header{display:block}.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}h1{font-size:24px}.card{padding:16px}
+      table{min-width:0;display:block}thead{display:none}tbody{display:block}tr{display:block;border-bottom:2px solid #dce4ee;padding:8px}
+      td,td.archivos,td.persona{display:block;width:100%;min-width:0;border:0;padding:8px}
+      td[data-label]::before{content:attr(data-label);display:block;font-weight:700;color:#52647b;margin-bottom:6px}
+      .table-wrap{max-height:650px}.assign input{flex:1}.badge{white-space:normal}}
+  </style>
+</head>
+<body>
+<main>
+  <header><div><span class="eyebrow">INFORMES DE HONORARIOS · ADMINISTRACIÓN</span><h1>Recepción masiva de informes</h1><p class="muted">Dos grupos de PDF, un listado por funcionario y periodo.</p></div><small id="cuenta">Comprobando acceso…</small></header>
+  <div id="mensaje" class="notice" role="status" aria-live="polite">Cargando la nómina autorizada…</div>
+  <section class="card">
+    <div class="row"><div><label for="mes-recepcion">Mes del informe</label><select id="mes-recepcion"></select></div><div><label for="anio-recepcion">Año</label><select id="anio-recepcion"></select></div><button id="nuevo">Nuevo listado</button><button id="exportar">Descargar listado CSV</button></div>
+    <p class="muted">Use PDF individuales de hasta 5 MB. El nombre completo o el RUT permiten asociarlos a la nómina. Puede combinar archivos del computador y de Drive.</p>
+  </section>
+  <div class="grid">
+    <section class="card"><h2>1. Remuneraciones</h2><label for="local-remu">Seleccionar PDF del computador</label><input id="local-remu" type="file" accept=".pdf,application/pdf" multiple>
+      <div class="field"><label for="drive-remu">O cargar una carpeta de Drive</label><input class="folder" id="drive-remu" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off"><button id="leer-remu" style="margin-top:10px">Leer carpeta de remuneraciones</button></div><small class="muted">Informe completo firmado y demás antecedentes que correspondan a la entrega.</small></section>
+    <section class="card"><h2>2. Transparencia</h2><label for="local-transp">Seleccionar PDF del computador</label><input id="local-transp" type="file" accept=".pdf,application/pdf" multiple>
+      <div class="field"><label for="drive-transp">O cargar una carpeta de Drive</label><input class="folder" id="drive-transp" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off"><button id="leer-transp" style="margin-top:10px">Leer carpeta de transparencia</button></div><small class="muted">Versión revisada para transparencia. La carga no elimina automáticamente información reservada.</small></section>
+  </div>
+  <section class="card">
+    <h2>3. Revisar el listado</h2>
+    <div class="stats"><div class="stat">Personas / grupos<strong id="total">0</strong></div><div class="stat">Pares listos<strong id="listos">0</strong></div><div class="stat">Por revisar<strong id="pendientes">0</strong></div><div class="stat">Registrados en este listado<strong id="registrados">0</strong></div></div>
+    <div class="row" style="margin-bottom:14px"><div><label for="filtro">Mostrar</label><select id="filtro"><option value="todos">Todos</option><option value="listos">Listos</option><option value="pendientes">Por revisar / errores</option><option value="registrados">Registrados</option></select></div><div><label for="buscar-recepcion">Buscar nombre o RUT</label><input id="buscar-recepcion" placeholder="Buscar en el listado"></div><button id="consultar">Consultar entregas del periodo</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Funcionario</th><th>Remuneraciones</th><th>Transparencia</th><th>Estado / revisión</th></tr></thead><tbody id="listado"><tr><td colspan="4" class="empty">Seleccione sus dos grupos de PDF para preparar el listado.</td></tr></tbody></table></div>
+    <div class="row" style="margin-top:12px"><button id="pagina-anterior">Anterior</button><span id="pagina-resumen">0 filas</span><button id="pagina-siguiente">Siguiente</button></div>
+    <datalist id="personas-recepcion"></datalist>
+    <label id="review"><input id="revisado" type="checkbox"><span>Revisé las identidades y las dos versiones de los pares listos. Confirmo que remuneraciones corresponde a la entrega completa y que transparencia está revisada para su destino.</span></label>
+    <p class="muted"><small>Se registran solamente los pares listos, una persona a la vez. Los incompletos quedan en el listado. Mantenga esta pestaña abierta durante la carga; si la recarga, deberá volver a seleccionar los PDF locales. Las entregas confirmadas quedan en el registro mensual.</small></p>
+    <progress id="avance" value="0" max="1"></progress>
+    <div class="row"><button class="primary" id="registrar" disabled>Registrar pares listos</button><button id="pausar" disabled>Pausar después del actual</button><span id="progreso" aria-live="polite"></span></div>
+  </section>
+</main>
+<?!= include('JS_RECEPCION_MODELO'); ?>
+<?!= include('JS_RECEPCION'); ?>
+</body>
+</html>

@@ -1,0 +1,9 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+function entorno(){const elementos=new Map();let llamadas=0,callback;const e=id=>{if(!elementos.has(id))elementos.set(id,{value:'',disabled:false,innerHTML:'',checked:false,style:{},options:[],classList:{add(){}}});return elementos.get(id);};
+ const c=vm.createContext({tutorialActivo:false,document:{addEventListener(){},body:{style:{}},getElementById:e},actualizarEstadoInforme(){},backendControlado:()=>{const chain={withSuccessHandler:f=>{callback=f;return chain;},withFailureHandler:()=>chain,buscarInfoJefaturaPorNombre:()=>llamadas++};return chain;}});
+ const source=fs.readFileSync('JS_INFORMES.html','utf8');for(const x of source.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g))vm.runInContext(x[1],c);
+ return {c,e,get llamadas(){return llamadas;},responder:datos=>callback(datos)};}
+test('jefatura y cargo manuales se conservan sin consultar un nombre inexistente',()=>{const x=entorno();x.e('inputCargo').value='COORDINADOR TERRITORIAL';x.e('inputDirJefatura').value='Unidad territorial';
+ x.c.editarNombreJefatura('Nueva jefatura');x.c.autocompletarJefatura('Nueva jefatura');assert.equal(x.llamadas,0);assert.equal(x.e('inputJefaturaNombre').value,'Nueva jefatura');assert.equal(x.e('inputCargo').value,'COORDINADOR TERRITORIAL');});
+test('una respuesta atrasada no sobrescribe el cargo que el usuario acaba de escribir',()=>{const x=entorno();x.e('listJefaturas').options=[{value:'Jefatura del catálogo'}];x.c.autocompletarJefatura('Jefatura del catálogo');
+ x.e('inputCargo').value='Cargo escrito';x.c.cancelarAutocompletadoJefatura();x.responder({cargo:'Director',unidad:'Otra unidad'});assert.equal(x.e('inputCargo').value,'Cargo escrito');assert.equal(x.e('btnGenerar').disabled,false);});

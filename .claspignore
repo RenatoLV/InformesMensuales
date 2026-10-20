@@ -1,0 +1,17 @@
+**/node_modules/**
+**/.git/**
+docs/**
+tests/**
+preview/**
+tools/**
+package*.json
+README.md
+**/*.md
+.clasp.example.json
+.github/**
+**/*.docx
+**/*.png
+**/*.log
+
+cloud-run/**
+output/**

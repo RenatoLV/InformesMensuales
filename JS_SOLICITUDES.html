@@ -1,0 +1,93 @@
+<script>
+// Esta cola limita cada navegador. Las reservas del servidor limitan el conjunto de usuarios.
+const GestorSolicitudes = (() => {
+    const lecturas = new Set(['buscarFuncionario', 'obtenerListaNombresJefaturas',
+        'buscarInfoJefaturaPorNombre', 'obtenerInfoSpreadsheetConectado', 'consultarGeneracionesPDF', 'consultarGeneracionPDF']);
+    const idempotentes = new Set(['procesarInforme', 'procesarItemIndividualLote', 'inicializarLoteEnSheet',
+        'guardarArchivoFirmado', 'guardarArchivosDual', 'guardarArchivoDualLote']);
+    const cacheables = new Set(['obtenerListaNombresJefaturas', 'buscarInfoJefaturaPorNombre']);
+    const pendientes = new Map(), cache = new Map(), cola = [];
+    let activos = 0, escrituras = 0, secuencia = 0;
+    const copiar = valor => valor === undefined ? valor : JSON.parse(JSON.stringify(valor));
+    function ocupado(error) {
+        return /OCUPADO:|EN_PROCESO:|too many simultaneous|in a short time/i.test(String(error.message || error));
+    }
+    function ejecutar(fn, args) {
+        if (tutorialActivo) return Promise.reject(new Error('La práctica no realiza operaciones en el servidor.'));
+        const lectura = lecturas.has(fn);
+        const d = args[0] || {};
+        const clave = lectura ? fn + ':' + JSON.stringify(args) : idempotentes.has(fn)
+            ? [fn, String(d.rut || '').replace(/[.\s]/g, '').toUpperCase(), d.anio || '', d.mesSeleccionado || d.mes || '', d.tipo || ''].join(':')
+            : fn + ':' + (++secuencia);
+        const previa = pendientes.get(clave);
+        if (previa) {
+            // No confundir dos versiones distintas del mismo informe o adjunto.
+            if (!lectura && JSON.stringify(previa.args) !== JSON.stringify(args))
+                return Promise.reject(new Error('Ya hay una operación con otros datos para este informe. Espere a que termine.'));
+            return previa.promesa.then(copiar);
+        }
+        const guardado = cache.get(clave);
+        if (guardado && guardado.vence > Date.now()) return Promise.resolve(copiar(guardado.valor));
+        if (pendientes.size >= 12) return Promise.reject(new Error('Hay solicitudes pendientes en esta pantalla. Espere antes de continuar.'));
+        let resolver, rechazar;
+        const promesa = new Promise((ok, fail) => { resolver = ok; rechazar = fail; });
+        const tarea = {fn, args, clave, lectura, promesa, resolver, rechazar, intentos:0};
+        pendientes.set(clave, tarea); cola.push(tarea); despachar();
+        return promesa.then(copiar);
+    }
+    function despachar() {
+        while (activos < 2) {
+            const index = cola.findIndex(t => t.lectura || escrituras === 0);
+            if (index < 0) return;
+            const tarea = cola.splice(index, 1)[0];
+            activos++; if (!tarea.lectura) escrituras++;
+            const inicio = Date.now();
+            let cerrado = false;
+            function terminar(error, valor) {
+                if(cerrado) return; cerrado = true;
+                activos--; if (!tarea.lectura) escrituras--;
+                const seguro = tarea.lectura || idempotentes.has(tarea.fn);
+                if (error && seguro && ocupado(error) && tarea.intentos < 7) {
+                    // Espera en el navegador: no ocupa una ejecución de Apps Script.
+                    const espera = Math.min(30000, 5000 * 2 ** tarea.intentos) + Math.floor(Math.random() * 5000);
+                    tarea.intentos++;
+                    const el = document.getElementById('loader-text');
+                    if(el && !tarea.lectura) el.textContent = 'Hay solicitudes en curso. Mantenga esta pantalla abierta; reintentaremos en ' + Math.ceil(espera/1000) + ' segundos.';
+                    setTimeout(() => { cola.push(tarea); despachar(); }, espera);
+                } else {
+                    pendientes.delete(tarea.clave);
+                    if(error) tarea.rechazar(error);
+                    else {
+                        if(cacheables.has(tarea.fn)) {
+                            if(cache.size >= 100) cache.delete(cache.keys().next().value);
+                            cache.set(tarea.clave, {valor:copiar(valor), vence:Date.now()+300000});
+                        }
+                        tarea.resolver(valor);
+                    }
+                }
+                // Solo tiempos y nombre de operación; no registra RUT, contacto ni archivos.
+                if(typeof console !== 'undefined') console.info('[Solicitudes]', tarea.fn, Date.now()-inicio, error?'error':'ok');
+                despachar();
+            }
+            try {
+                google.script.run.withSuccessHandler(valor => {
+                    const error = valor && valor.exito === false && valor.error;
+                    terminar(error && ocupado(error) ? new Error(error) : null, valor);
+                }).withFailureHandler(error => terminar(error))[tarea.fn](...tarea.args);
+            } catch(error) { terminar(error); }
+        }
+    }
+    return { ejecutar, ocupado, tieneEscrituras:() => Array.from(pendientes.values()).some(t => !t.lectura) };
+})();
+
+// Adaptador para los módulos que utilizan los callbacks de google.script.run.
+function backendControlado() {
+    let exito = () => {}, fallo = error => console.error(error);
+    const chain = new Proxy({}, {get(_, fn) {
+        if(fn === 'withSuccessHandler') return cb => { exito=cb; return chain; };
+        if(fn === 'withFailureHandler') return cb => { fallo=cb; return chain; };
+        return (...args) => GestorSolicitudes.ejecutar(fn,args).then(exito,fallo);
+    }});
+    return chain;
+}
+</script>

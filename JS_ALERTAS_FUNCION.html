@@ -1,0 +1,29 @@
+<script>
+let alertaFuncionEnCurso = false;
+function abrirAlertaFuncion() {
+    if (tutorialActivo) return;
+    if (!document.getElementById('rutFull').value) return alert('Identifíquese para solicitar la revisión.');
+    document.getElementById('alerta-funcion-motivo').value = document.getElementById('funcionVisual').value.trim() ? 'INCORRECTA' : 'VACIA';
+    document.getElementById('alerta-funcion-detalle').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalAlertaFuncion')).show();
+}
+async function enviarAlertaFuncion() {
+    if (tutorialActivo || alertaFuncionEnCurso) return;
+    alertaFuncionEnCurso = true;
+    const btn = document.getElementById('btnEnviarAlertaFuncion');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+        const res = await solicitarBackend('reportarFuncionContrato', {
+            rut:document.getElementById('rutFull').value,
+            mes:document.getElementById('mes').value, anio:recopilarDatos().anio,
+            correo:document.getElementById('correo').value, fono:document.getElementById('fono').value,
+            motivo:document.getElementById('alerta-funcion-motivo').value,
+            detalle:document.getElementById('alerta-funcion-detalle').value.trim()
+        });
+        if (!res.exito) throw new Error(res.error || 'No se pudo enviar la alerta.');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalAlertaFuncion')).hide();
+        alert(res.repetida ? 'Ya hay una alerta reciente para este funcionario y período. Espere 15 minutos antes de enviar otra.' : 'Alerta enviada a renato.alvarez@municoquimbo.cl. Se solicitó revisar su función de contrato.');
+    } catch(e) { alert('No se confirmó el envío de la alerta: ' + (e.message || String(e))); }
+    finally { alertaFuncionEnCurso = false; btn.disabled = false; btn.textContent = 'Enviar alerta'; }
+}
+</script>

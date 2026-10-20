@@ -1,0 +1,303 @@
+<style>
+#tutorial-guia[hidden], #tutorial-documentos[hidden] { display:none!important; }
+#tutorial-guia { position:fixed; inset:0; z-index:12000; }
+.tutorial-mask { position:fixed; background:rgba(0,0,0,.82); pointer-events:none; }
+.tutorial-shield { position:absolute; inset:0; }
+#tutorial-foco { position:fixed; border:3px solid #ffd166; border-radius:10px; pointer-events:none; box-shadow:0 0 0 5px rgba(255,209,102,.18); }
+.tutorial-guide-inner { position:fixed; width:380px; max-width:calc(100vw - 24px); max-height:calc(100vh - 24px); overflow-y:auto; background:#142b3a; color:#fff; padding:22px; border:1px solid #587080; border-radius:16px; box-shadow:0 18px 60px #0008; }
+.tutorial-guide-kicker { color:#ffd166; font-size:.72rem; font-weight:700; letter-spacing:.05em; }
+#tutorial-titulo { font-size:1.2rem; margin:12px 0; color:#fff; }
+#tutorial-instruccion { font-size:.9rem; line-height:1.65; margin:12px 0 20px; }
+#tutorial-origen { display:inline-block; font-size:.68rem; padding:5px 8px; border-radius:5px; background:#28495b; color:#d3edf6; }
+.tutorial-guide-actions { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+#tutorial-siguiente { background:#ffd166; color:#172b39; font-weight:700; border:0; padding:10px 20px; border-radius:8px; }
+#tutorial-terminar { background:transparent; border:0; color:#c6d3dc; font-size:.8rem; padding:10px 0; }
+body.tutorial-practica { overflow:hidden!important; }
+body.tutorial-practica .app-container * { transition:none!important; animation:none!important; }
+.tutorial-document-preview { background:white; padding:20px; border:1px solid #ddd; border-radius:10px; font-size:.85rem; line-height:1.6; }
+.tutorial-document-preview h3 { font-size:1rem; }
+.tutorial-reservado { color:#287052; }
+@media(max-width:767px) { .tutorial-guide-inner { padding:16px; } #tutorial-instruccion { font-size:.83rem; margin:10px 0 14px; } #tutorial-titulo { font-size:1.05rem; margin:8px 0; } }
+</style>
+<aside id="tutorial-guia" role="dialog" aria-modal="true" aria-labelledby="tutorial-titulo" aria-describedby="tutorial-instruccion" hidden>
+ <div class="tutorial-mask" id="tutorial-mask-top"></div><div class="tutorial-mask" id="tutorial-mask-left"></div><div class="tutorial-mask" id="tutorial-mask-right"></div><div class="tutorial-mask" id="tutorial-mask-bottom"></div>
+ <div class="tutorial-shield"></div><div id="tutorial-foco"></div>
+ <div class="tutorial-guide-inner">
+  <div class="tutorial-guide-kicker" id="tutorial-progreso"></div>
+  <div aria-live="polite" aria-atomic="true"><h2 id="tutorial-titulo"></h2><span id="tutorial-origen"></span><p id="tutorial-instruccion"></p></div>
+  <div class="tutorial-guide-actions"><button id="tutorial-terminar" type="button">Salir de la guía</button><button id="tutorial-siguiente" type="button">Siguiente →</button></div>
+ </div>
+</aside>
+<div id="tutorial-documentos" class="row g-3 mb-4" hidden></div>
+<script>
+// La práctica conserva su vista anterior y no escribe la sesión ni llama al servidor.
+const TutorialPractico = (function () {
+    const guia = document.getElementById('tutorial-guia');
+    const documentos = document.getElementById('tutorial-documentos');
+    document.body.appendChild(guia);
+    document.getElementById('upload-ui-single').insertAdjacentElement('beforebegin', documentos);
+    const ejemplo = {
+        encontrado: true, nombre: 'Camila Soto Pérez', rut: '00.000.000-0', nacimiento: '01/06/1992',
+        programa: 'Apoyo a la Gestión Municipal', origen: 'HONORARIOS · EJEMPLO',
+        direccion: 'Dirección de Desarrollo Comunitario', fono: '+56 9 0000 0000', email: 'camila@example.test',
+        funcion: 'Apoyo administrativo en la atención de público, organización de antecedentes y seguimiento de solicitudes de la Dirección de Desarrollo Comunitario.',
+        actividadesAnteriores: '1. Atención y orientación de 45 consultas de público sobre trámites de la unidad.\n2. Organización y revisión de 60 antecedentes administrativos.\n3. Actualización del registro de solicitudes y seguimiento de 18 casos pendientes.'
+    };
+    let vistaAnterior;
+    let adjunto = false;
+    let completado = false;
+    let identificado = false;
+
+    let indice = 0;
+    let fondos = [];
+    const pasos = [
+      ['#rutSearch','Ingrese su RUT','USTED INGRESA','En el uso real escribe su RUT para buscar sus antecedentes. Aquí colocamos 00.000.000-0: es ficticio y solo sirve para practicar.'],
+      ['#btnContinuar','Ahora se presiona Continuar','CONSULTA A LA BASE','Continuar busca al funcionario en la nómina municipal. Al pulsar Siguiente lo haremos por usted con una nómina ficticia.', identificar],
+      ['#nombre','Nombre completo','BASE MUNICIPAL','Camila Soto Pérez viene precargado desde la nómina. Este campo se consulta, no se escribe.'],
+      ['#rutVisual','RUT del funcionario','BASE MUNICIPAL','El RUT identifica a quién corresponde el informe. Debe coincidir con el consultado; aquí usamos un RUT ficticio.'],
+      ['#nacimiento','Fecha de nacimiento','BASE MUNICIPAL','01/06/1992 viene desde los antecedentes del funcionario. Revise que corresponda a su información.'],
+      ['#programa','Programa','BASE MUNICIPAL','Apoyo a la Gestión Municipal es el programa asociado al funcionario en la nómina.'],
+      ['#fono','Teléfono / celular','CONTACTO DEL FUNCIONARIO','Se carga desde la base o el último contacto registrado, cuando existe. Si falta o cambió, usted lo completa. Es obligatorio. Ejemplo: +56 9 0000 0000.'],
+      ['#correo','Correo electrónico','CONTACTO DEL FUNCIONARIO','Se precarga desde la base o el historial disponible. Usted debe completar o corregir un correo válido. Ejemplo: camila@example.test.'],
+      ['#form-wizard-step-1 button','Pasamos al período y contrato','AVANCE AUTOMÁTICO','Con el contacto completo, se presiona Siguiente Paso. Pulse Siguiente en esta guía y avanzaremos por usted.', () => avanzarWizard(2)],
+      ['#mes','Mes del informe','PERÍODO DEL SISTEMA','El sistema selecciona el mes habilitado. Compruebe que corresponde a la entrega que va a realizar.'],
+      ['#funcionVisual','Función según contrato','BASE MUNICIPAL · SOLO LECTURA','La función viene de la nómina y no se puede modificar. Si está vacía o incorrecta, el botón con el símbolo de alerta solicita su revisión por correo a Renato. El ejemplo muestra apoyo administrativo y atención de público.'],
+      ['#periodoMes','Inicio del período','CÁLCULO AUTOMÁTICO','La fecha inicial se calcula para el mes seleccionado. Si corresponde a un período parcial, revise el ajuste habilitado en el formulario.'],
+      ['#periodoFinMes','Fin del período','CÁLCULO AUTOMÁTICO','La fecha final se calcula para el mes. Verifique que refleje el período efectivamente informado.'],
+      ['#funcionVisual','Pasamos a las actividades','AVANCE AUTOMÁTICO','Ya revisamos período y función. Siguiente abrirá el apartado de actividades.', () => avanzarWizard(3)],
+      ['#actividades','Actividades realizadas','USTED COMPLETA','Describa el trabajo de este mes con acciones y resultados concretos. El Editor de actividades permite aplicar títulos, listas, colores y estilos. Aquí usamos atención de 45 consultas y revisión de 60 antecedentes. Si aparece texto anterior, actualícelo.'],
+      ['#dificultades','Dificultades o propuestas','USTED COMPLETA','Indique problemas o mejoras relacionadas con el trabajo. El ejemplo propone unificar el registro de solicitudes.'],
+      ['#ausenciaMotivo','Ausencias','USTED SELECCIONA','El ejemplo indica No presenta. Si hubo ausencia, seleccione el motivo y complete fecha y días; el sistema calcula el término según el tipo de ausencia.'],
+      ['#actividades','Pasamos a la jefatura','AVANCE AUTOMÁTICO','Con las actividades completas se continúa a la visación. Pulse Siguiente para avanzar.', () => avanzarWizard(4)],
+      ['#selectJefatura','Jefatura que visa','CATÁLOGO MUNICIPAL','Seleccione una sugerencia o escriba el nombre completo si su jefatura no está en el catálogo. Aquí usamos JEFATURA DE EJEMPLO.'],
+      ['#chkSubrogante','¿Es subrogante?','USTED CONFIRMA','Marque esta casilla solo si quien visa está actuando como subrogante. En el ejemplo queda sin marcar.'],
+      ['#inputCargo','Cargo de la jefatura','DATOS DE JEFATURA','El cargo se completa al elegir la jefatura. Revise que corresponda; el ejemplo usa DIRECTOR(A).'],
+      ['#inputDirJefatura','Dirección de la jefatura','DATOS DE JEFATURA','La dirección se completa con la jefatura seleccionada. Aquí corresponde a la Dirección de Desarrollo Comunitario.'],
+      ['#btnGenerar','Generar las dos versiones','ACCIÓN DEL SISTEMA','En una entrega real GENERAR PDF prepara el informe y la versión para transparencia. Siguiente simulará este paso sin crear documentos ni guardar en Drive.', generar],
+      ['#btnDescargaRemu','Informe para remuneraciones','DOCUMENTO ORIGINAL','Este botón entrega el informe original para revisión y firma. Siguiente mostrará una muestra ficticia en la pantalla.', () => verDocumento('original')],
+      ['#tutorial-documentos','Así se ve el original','MUESTRA FICTICIA','El original contiene los antecedentes del funcionario y sus actividades. En el proceso real revise el documento antes de firmarlo.'],
+      ['#btnDescargaTransp','Versión para transparencia','DATOS SENSIBLES RESERVADOS','La segunda versión reserva datos sensibles. Siguiente mostrará el ejemplo con RUT, nacimiento y contacto ocultos.', () => verDocumento('transparencia')],
+      ['#tutorial-documentos','Así se ve transparencia','MUESTRA FICTICIA','Los campos sensibles aparecen como [RESERVADO]. Revise también los textos de actividades y anexos para evitar incluir datos sensibles de terceros.'],
+      ['#archivoFirmadoSingle','Adjuntar el archivo firmado','USTED ADJUNTA','En el uso real adjunta el informe firmado con la boleta, según lo solicitado en pantalla. Siguiente seleccionará un archivo ficticio, sin abrir sus archivos.', adjuntar],
+      ['#upload-ui-single button','Subir y finalizar','REGISTRO DE ENTREGA','El archivo de ejemplo ya está seleccionado. En una entrega real este botón registra los documentos y su trazabilidad. Siguiente simulará la finalización.', entregar],
+      ['#locked-alert-3','¡Recorrido completado!','SIN REGISTROS REALES','En el proceso real queda registrada la entrega y se bloquea una nueva generación para el mismo RUT y mes. Finalizar recupera la pantalla que tenía antes de comenzar.']
+    ];
+    function orientar() {} // Las acciones reales están aisladas; la guía gobierna cada paso.
+    function ajustarCabecera() {
+      if (!tutorialActivo) return;
+      const paso = pasos[indice];
+      let target = document.querySelector(paso[0]);
+      if (!target) return;
+      if (target.id === 'archivoFirmadoSingle') target = target.closest('.upload-area');
+      else if (target.matches('input, select, textarea')) target = target.parentElement;
+      const card = guia.querySelector('.tutorial-guide-inner');
+      const mobile = innerWidth < 768;
+      const r = target.getBoundingClientRect();
+      const cardHeight = card.offsetHeight;
+      const available = mobile ? innerHeight - cardHeight - 48 : innerHeight - 48;
+      const desired = mobile ? 24 : Math.max(24, (innerHeight - Math.min(r.height, available)) / 2);
+      window.scrollTo({top:Math.max(0, scrollY + r.top - desired), behavior:'instant'});
+      const rect = target.getBoundingClientRect();
+      const x = Math.max(8, rect.left - 8), y = Math.max(8,rect.top - 8);
+      const right = Math.min(innerWidth - 8, rect.right + 8);
+      const bottom = Math.min(mobile ? innerHeight-cardHeight-32 : innerHeight-8, rect.bottom+8);
+      function box(id,l,t,w,h) { Object.assign(document.getElementById(id).style,{left:l+'px',top:t+'px',width:Math.max(0,w)+'px',height:Math.max(0,h)+'px'}); }
+      box('tutorial-mask-top',0,0,innerWidth,y);
+      box('tutorial-mask-left',0,y,x,bottom-y);
+      box('tutorial-mask-right',right,y,innerWidth-right,bottom-y);
+      box('tutorial-mask-bottom',0,bottom,innerWidth,innerHeight-bottom);
+      box('tutorial-foco',x,y,right-x,bottom-y);
+      let left = innerWidth - card.offsetWidth - 24;
+      let top = bottom + 18;
+      if (mobile) { left=12; top=innerHeight-cardHeight-12; }
+      else if (right + card.offsetWidth + 24 < innerWidth) { left=right+18; top=Math.max(12,y); }
+      else if (x > card.offsetWidth + 24) { left=x-card.offsetWidth-18; top=Math.max(12,y); }
+      else if (top + cardHeight > innerHeight-12) top=Math.max(12,y-cardHeight-18);
+      top = Math.max(12, Math.min(top, innerHeight-cardHeight-12));
+      Object.assign(card.style,{left:left+'px',top:top+'px'});
+    }
+    function mostrarPaso() {
+      const paso=pasos[indice];
+      document.getElementById('tutorial-progreso').textContent='EJEMPLO FICTICIO · '+(indice+1)+' DE '+pasos.length;
+      document.getElementById('tutorial-titulo').textContent=paso[1];
+      document.getElementById('tutorial-origen').textContent=paso[2];
+      document.getElementById('tutorial-instruccion').textContent=paso[3];
+      document.getElementById('tutorial-siguiente').textContent=indice===pasos.length-1?'Finalizar':'Siguiente →';
+      requestAnimationFrame(ajustarCabecera);
+      setTimeout(() => { if(tutorialActivo) ajustarCabecera(); },150);
+      document.getElementById('tutorial-siguiente').focus({preventScroll:true});
+    }
+    function siguiente() {
+      if(indice===pasos.length-1) { terminar(); return; }
+      if(pasos[indice][4]) pasos[indice][4]();
+      indice++; mostrarPaso();
+    }
+    function capturarVista() {
+        const nodos = Array.from(document.querySelectorAll('.app-container *, #btnSalir, #btnTutorial'));
+        const html = ['sidebarNombre', 'sidebarRut', 'sidebarPrograma', 'sidebarDireccion', 'badgeMode',
+            'estado-informe', 'locked-alert-3', 'fileNameDisplay', 'btnGenerar', 'btnSalir', 'selectJefatura', 'listJefaturas']
+            .map(id => document.getElementById(id)).filter(Boolean)
+            .concat(Array.from(document.querySelectorAll('.wizard-step-indicator .step-circle')));
+        return {
+            nodos: nodos.map(el => ({ el, attrs: Array.from(el.attributes).map(a => [a.name, a.value]),
+                valor: 'value' in el && el.type !== 'file' ? el.value : undefined, checked: el.checked })),
+            html: html.map(el => ({ el, html: el.innerHTML })),
+            estado: { currentStep, procesoBloqueado, isBatchMode, isModoSinGeneracion },
+            foco: document.activeElement.closest('#infoModal') ? document.getElementById('btnTutorial') : document.activeElement,
+            scroll: window.scrollY
+        };
+    }
+    function iniciar() {
+        if (tutorialActivo) return;
+        if (document.body.getAttribute('aria-busy') === 'true' || document.body.style.cursor === 'wait') {
+            alert('Espere a que termine la operación en curso para iniciar la práctica.'); return;
+        }
+        if (!tutorialActivo) vistaAnterior = capturarVista();
+        tutorialActivo = true;
+        document.body.classList.add('tutorial-practica');
+        guia.hidden = false;
+        fondos = Array.from(document.body.children).filter(el => el !== guia && !['SCRIPT','STYLE'].includes(el.tagName)).map(el => ({el, inert:el.inert}));
+        fondos.forEach(item => { item.el.inert = true; });
+        indice = 0;
+        adjunto = false; completado = false; identificado = false;
+        documentos.hidden = true;
+        documentos.innerHTML = '';
+        document.getElementById('tutorial-terminar').textContent = 'Salir de la guía';
+        procesoBloqueado = false; isBatchMode = false; isModoSinGeneracion = false;
+        document.getElementById('rutSearch').value = ejemplo.rut;
+        document.getElementById('rutSearch').readOnly = true;
+        document.getElementById('rutFull').value = '';
+        document.getElementById('layout-sidebar').classList.add('d-none');
+        document.getElementById('layout-main').classList.remove('col-lg-9');
+        document.getElementById('layout-main').classList.add('col-12');
+        document.getElementById('btnSalir').classList.add('d-none');
+        document.getElementById('batch-alert-form').classList.add('d-none');
+        document.getElementById('batch-progress-container').classList.add('d-none');
+        document.getElementById('locked-message').classList.add('d-none');
+        initDate();
+        goToStep(1);
+        actualizarEstadoInforme('Modo práctica · No se generan documentos ni registros reales', 'warning');
+        orientar('1 de 6 · Ahora presione Continuar', 'Ya colocamos el RUT ficticio 00.000.000-0. Presione el botón Continuar del portal para cargar los datos de la nómina de ejemplo.', '#rutSearch, #btnContinuar');
+        mostrarPaso();
+    }
+    function identificar() {
+        if (identificado) return;
+        identificado = true;
+        llenarFormulario(ejemplo);
+        activarVistaLogeado(ejemplo, false);
+        document.getElementById('badgeMode').textContent = 'Práctica';
+        document.getElementById('btnSalir').textContent = 'Salir';
+        document.getElementById('dificultades').value = 'Se propone unificar el registro de solicitudes para facilitar su seguimiento.';
+        limpiarAusenciaUnica();
+        const select = document.getElementById('selectJefatura');
+        document.getElementById('listJefaturas').innerHTML = '<option value="JEFATURA DE EJEMPLO"></option>';
+        select.value = 'JEFATURA DE EJEMPLO';
+        jefatura(select.value);
+        goToStep(2);
+        formulario(1);
+    }
+    function formulario() {}
+    function jefatura(nombre) {
+        document.getElementById('inputJefaturaNombre').value = nombre === 'OTRO' ? '' : nombre;
+        document.getElementById('manualJefaturaContainer').classList.toggle('d-none', nombre !== 'OTRO');
+        document.getElementById('inputCargo').value = nombre ? 'DIRECTOR(A)' : '';
+        document.getElementById('inputDirJefatura').value = nombre ? ejemplo.direccion : '';
+        document.getElementById('chkSubrogante').checked = false;
+    }
+    function generar() {
+        if (!identificado) return;
+        const requeridos = ['fono', 'correo', 'funcionVisual', 'actividades', 'inputJefaturaNombre', 'inputCargo', 'inputDirJefatura'];
+        if (requeridos.some(id => !document.getElementById(id).value.trim())) {
+            orientar('Complete los campos del ejemplo', 'Revise contacto, función, actividades y jefatura antes de volver a presionar GENERAR PDF.', '#btnGenerar'); return;
+        }
+        document.getElementById('upload-ui-single-dual').classList.add('d-none');
+        document.getElementById('upload-ui-single').classList.remove('d-none');
+        document.getElementById('locked-alert-3').textContent = 'PRÁCTICA · Falta adjuntar el archivo de ejemplo';
+        document.getElementById('fileNameDisplay').textContent = 'Practique seleccionando el archivo ficticio';
+        const archivo = document.getElementById('archivoFirmadoSingle');
+        archivo.disabled = true;
+        archivo.classList.remove('d-none');
+        archivo.closest('.upload-area').classList.add('tutorial-upload-example');
+        document.getElementById('btnDescargaRemu').href = '#';
+        document.getElementById('btnDescargaTransp').href = '#';
+        adjunto = false; completado = false;
+        goToStep(3);
+        actualizarEstadoInforme('Práctica · Dos versiones preparadas; falta simular la entrega', 'warning');
+        orientar('6 de 6 · Revise los documentos y practique la entrega', 'Presione Informe o Transparencia para ver la muestra. En una entrega real debe firmar y adjuntar el informe con la boleta. Aquí haga clic en la zona de carga para seleccionar un archivo de ejemplo y luego SUBIR Y FINALIZAR.', '#btnDescargaRemu, #btnDescargaTransp');
+    }
+    function verDocumento(tipo) {
+        const publico = tipo === 'transparencia';
+        const contenido = '<strong>' + escaparHtml(document.getElementById('nombre').value) + '</strong><br>' + escaparHtml(document.getElementById('mes').value) + '<br>' +
+            (publico ? '<span class="tutorial-reservado">RUT: [RESERVADO]<br>Nacimiento: [RESERVADO]<br>Teléfono: [RESERVADO]<br>Correo: [RESERVADO]</span>' :
+                ['RUT: ' + ejemplo.rut, 'Nacimiento: ' + document.getElementById('nacimiento').value, 'Teléfono: ' + document.getElementById('fono').value, 'Correo: ' + document.getElementById('correo').value].map(escaparHtml).join('<br>')) +
+            '<hr><strong>Función</strong><p>' + escaparHtml(document.getElementById('funcionVisual').value) + '</p><strong>Actividades</strong><p style="white-space:pre-line">' + escaparHtml(document.getElementById('actividades').value) + '</p>';
+        documentos.innerHTML = '<div class="col-12"><div class="tutorial-document-preview"><h3>' + (publico ? 'Transparencia · Muestra de datos reservados' : 'Remuneraciones · Muestra del original') + '</h3>' + contenido + '<small>Vista de práctica. Revise también los datos sensibles de los textos antes de una entrega real.</small></div></div>';
+        documentos.hidden = false;
+    }
+    function adjuntar() {
+        if (completado) return;
+        adjunto = true;
+        document.getElementById('fileNameDisplay').textContent = 'Informe_firmado_con_boleta_EJEMPLO.pdf · 850 KB · Seleccionado';
+        orientar('6 de 6 · Ahora presione SUBIR Y FINALIZAR', 'El archivo ficticio está seleccionado. Presione el botón de finalización de la pantalla para completar esta práctica.', '#upload-ui-single button');
+    }
+    function entregar() {
+        if (completado) return;
+        if (!adjunto) {
+            orientar('Primero seleccione el archivo de ejemplo', 'Haga clic en la zona de carga del informe firmado. Después presione SUBIR Y FINALIZAR.', '.tutorial-upload-example'); return;
+        }
+        completado = true;
+        actualizarEstadoInforme('Práctica completada · No se guardó ninguna entrega real', 'success');
+        document.getElementById('locked-alert-3').textContent = 'EJEMPLO FINALIZADO';
+        orientar('¡Práctica completada!', 'En una entrega real quedaría registrado el informe y bloqueada otra generación del mismo RUT y mes. Salga de la práctica para recuperar su pantalla anterior.', '#tutorial-terminar');
+    }
+    function terminar() {
+        if (!tutorialActivo || !vistaAnterior) return;
+        tutorialActivo = false;
+        fondos.forEach(item => { item.el.inert = item.inert; });
+        fondos = [];
+        document.body.classList.remove('tutorial-practica');
+        document.body.style.removeProperty('--tutorial-guide-bottom');
+        document.querySelectorAll('.tutorial-highlight').forEach(el => el.classList.remove('tutorial-highlight'));
+        guia.hidden = true;
+        documentos.hidden = true; documentos.innerHTML = '';
+        vistaAnterior.html.forEach(item => { item.el.innerHTML = item.html; });
+        vistaAnterior.nodos.forEach(item => {
+            Array.from(item.el.attributes).forEach(a => item.el.removeAttribute(a.name));
+            item.attrs.forEach(a => item.el.setAttribute(a[0], a[1]));
+            if (item.valor !== undefined) item.el.value = item.valor;
+            if (item.checked !== undefined) item.el.checked = item.checked;
+        });
+        currentStep = vistaAnterior.estado.currentStep;
+        procesoBloqueado = vistaAnterior.estado.procesoBloqueado;
+        isBatchMode = vistaAnterior.estado.isBatchMode;
+        isModoSinGeneracion = vistaAnterior.estado.isModoSinGeneracion;
+        window.scrollTo(0, vistaAnterior.scroll);
+        if (vistaAnterior.foco && vistaAnterior.foco.isConnected) vistaAnterior.foco.focus({ preventScroll: true });
+        vistaAnterior = null;
+        document.getElementById('tutorial-terminar').textContent = 'Salir de la guía';
+    }
+    document.getElementById('tutorial-siguiente').addEventListener('click', siguiente);
+    document.getElementById('tutorial-terminar').addEventListener('click', terminar);
+    window.addEventListener('resize', function () { if (tutorialActivo) ajustarCabecera(); });
+    guia.addEventListener('wheel', event => event.preventDefault(), {passive:false});
+    guia.addEventListener('touchmove', event => event.preventDefault(), {passive:false});
+    document.addEventListener('keydown', function(event) {
+      if(!tutorialActivo) return;
+      if(event.key==='Escape') { event.preventDefault(); terminar(); }
+      else if(event.key==='Tab') {
+        event.preventDefault();
+        const next=document.getElementById('tutorial-siguiente'), exit=document.getElementById('tutorial-terminar');
+        (document.activeElement===next?exit:next).focus({preventScroll:true});
+      } else if(['ArrowDown','ArrowUp','PageDown','PageUp','Home','End'].includes(event.key)) event.preventDefault();
+    }, true);
+    return { iniciar, identificar, formulario, jefatura, generar, entregar, terminar };
+}());
+
+function abrirTutorial() {
+    const ayuda = document.getElementById('infoModal');
+    if (ayuda.classList.contains('show')) {
+        ayuda.addEventListener('hidden.bs.modal', TutorialPractico.iniciar, { once: true });
+        bootstrap.Modal.getOrCreateInstance(ayuda).hide();
+    } else TutorialPractico.iniciar();
+}
+</script>

@@ -1,0 +1,63 @@
+<script>
+/**
+ * ==========================================
+ * MÓDULO LISTENERS
+ * Inicialización al cargar el DOM
+ * ==========================================
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    // Retirar únicamente la antigua persistencia de esta aplicación en equipos compartidos.
+    ['app_session_user', 'app_session_locked', 'app_session_links', 'app_session_batch_list',
+        'app_session_modo_singeneracion'].forEach(clave => localStorage.removeItem(clave));
+    // 1. Cargar lista de jefaturas (definido en js_business)
+    // El catálogo se carga después de identificar al funcionario, no en cada visita.
+
+    // 2. Configurar fechas automáticas (definido en js_core)
+    initDate();      
+
+    // 3. Recuperar sesión anterior si existe (definido en js_state)
+    initAppState();  
+
+    // 4. Cargar la información de la planilla conectada en el footer
+    const periodo = periodoLocalMunicipal();
+    const nombreMes = new Intl.DateTimeFormat('es-CL', { month: 'long', timeZone: 'America/Santiago' }).format(new Date());
+    document.getElementById('periodo-trabajo').textContent = nombreMes + ' ' + periodo.anio;
+    document.getElementById('rutSearch').addEventListener('keydown', event => { if (event.key === 'Enter') buscar(event); });
+    document.getElementById('rutSearch').addEventListener('input', event => {
+        const input = event.target;
+        const posicion = input.selectionStart;
+        const caracteresAntes = limpiarRutIngreso(input.value.slice(0, posicion)).length;
+        input.value = formatearRutVisual(input.value);
+        let cursor = 0, vistos = 0;
+        while (cursor < input.value.length && vistos < caracteresAntes) {
+            if (/[0-9K]/.test(input.value[cursor])) vistos++;
+            cursor++;
+        }
+        input.setSelectionRange(cursor, cursor);
+    });
+    document.getElementById('rutSearch').addEventListener('beforeinput', event => {
+        const input = event.target, posicion = input.selectionStart;
+        if (posicion !== input.selectionEnd) return;
+        if (event.inputType === 'deleteContentBackward' && /[.\-]/.test(input.value[posicion - 1] || '')) {
+            input.setSelectionRange(Math.max(0, posicion - 2), posicion);
+        } else if (event.inputType === 'deleteContentForward' && /[.\-]/.test(input.value[posicion] || '')) {
+            input.setSelectionRange(posicion, Math.min(input.value.length, posicion + 2));
+        }
+    });
+
+    // 5. Inicializar textareas auto-expandibles (definido en js_core)
+    initAutoExpandTextareas();
+    document.getElementById('step-2-content').addEventListener('input', guardarBorradorInforme);
+    document.getElementById('step-2-content').addEventListener('change', guardarBorradorInforme);
+    document.querySelectorAll('.wizard-step-indicator').forEach(indicador => {
+        indicador.setAttribute('role', 'button');
+        indicador.tabIndex = 0;
+        indicador.setAttribute('aria-label', 'Ir a ' + indicador.querySelector('.step-text').textContent);
+        const navegar = () => avanzarWizard(Number(indicador.dataset.stepTarget));
+        indicador.addEventListener('click', navegar);
+        indicador.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navegar(); }
+        });
+    });
+});
+</script>

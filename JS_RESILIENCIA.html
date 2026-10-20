@@ -1,0 +1,67 @@
+<script>
+function escaparHtml(valor) {
+    return String(valor == null ? '' : valor).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+}
+
+function periodoLocalMunicipal() {
+    const partes = new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+    return { anio: Number(partes.find(p => p.type === 'year').value), mes: Number(partes.find(p => p.type === 'month').value) };
+}
+
+function esErrorReintentable(error) {
+    return /OCUPADO:|EN_PROCESO:|too many simultaneous|in a short time/i.test(String(error.message || error));
+}
+
+async function solicitarBackend(fn, ...args) {
+    if (tutorialActivo) throw new Error('La práctica no realiza operaciones en el servidor.');
+    return GestorSolicitudes.ejecutar(fn, args);
+}
+
+function actualizarEstadoInforme(texto, tipo = 'info') {
+    const el = document.getElementById('estado-informe');
+    if (!el) return;
+    el.className = 'report-status report-status-' + tipo;
+    el.textContent = texto;
+}
+
+function enlaceDriveSeguro(valor) {
+    return /^https:\/\/(drive|docs)\.google\.com\/[A-Za-z0-9_/%?.=&+#-]+$/.test(String(valor || '')) ? valor : '#';
+}
+
+function validarArchivoCliente(file) {
+    if (!file || !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+        alert('Seleccione un archivo PDF, JPG o PNG.'); return false;
+    }
+    if (!file.size || file.size > 5 * 1024 * 1024) {
+        alert('El archivo debe tener contenido y pesar como máximo 5 MB.'); return false;
+    }
+    return true;
+}
+
+function guardarBorradorInforme() {
+    if (tutorialActivo) return;
+    const rut = document.getElementById('rutFull').value;
+    if (!rut || sessionStorage.getItem('app_session_locked') === 'true') return;
+    const campos = {};
+    document.querySelectorAll('#step-2-content input[id], #step-2-content textarea[id], #step-2-content select[id]').forEach(el => {
+        if (el.type !== 'file') campos[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    sessionStorage.setItem('app_session_draft', JSON.stringify({ rut, periodo: periodoLocalMunicipal(), campos }));
+}
+
+function restaurarBorradorInforme(rut) {
+    try {
+        const borrador = JSON.parse(sessionStorage.getItem('app_session_draft') || 'null');
+        const periodo = periodoLocalMunicipal();
+        if (!borrador || borrador.rut !== rut || borrador.periodo.mes !== periodo.mes || borrador.periodo.anio !== periodo.anio) return;
+        Object.keys(borrador.campos).forEach(id => {
+            if (['funcionVisual', 'funcionHtml', 'nombre', 'rutVisual', 'rutFull', 'nacimiento', 'programa', 'direccion'].includes(id)) return;
+            const el = document.getElementById(id);
+            if (el) { if (el.type === 'checkbox') el.checked = borrador.campos[id]; else el.value = borrador.campos[id]; }
+        });
+        actualizarAusenciaFields();
+    } catch (e) { sessionStorage.removeItem('app_session_draft'); }
+}
+</script>

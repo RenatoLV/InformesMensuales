@@ -1,0 +1,83 @@
+<script>
+/* Modelo puro del listado: no lee PDF ni llama servicios. */
+const RecepcionModelo = (() => {
+    const normalizar = valor => String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase().replace(/[_.]/g, ' ').replace(/\s+/g, ' ').trim();
+    function rut(valor) {
+        const m = String(valor || '').toUpperCase().replace(/[.\s]/g, '').match(/^(\d{7,8})-([0-9K])$/);
+        if (!m || !Number(m[1])) return '';
+        let suma = 0, f = 2;
+        for (let i = m[1].length - 1; i >= 0; i--) { suma += Number(m[1][i]) * f; f = f === 7 ? 2 : f + 1; }
+        const d = 11 - suma % 11;
+        return m[2] === (d === 11 ? '0' : d === 10 ? 'K' : String(d)) ? m[1].padStart(8, '0') + '-' + m[2] : '';
+    }
+    function nombreArchivo(nombre) {
+        return normalizar(String(nombre).replace(/\.pdf$/i, ''))
+            .replace(/^(REMU(?:NERACIONES)?|TRANSP(?:ARENCIA)?)\s*[- ]\s*/i, '')
+            .replace(/\s*[- ]\s*(REMU(?:NERACIONES)?|TRANSP(?:ARENCIA)?)$/i, '').trim();
+    }
+    function indice(personas) {
+        const porRut = new Map(), porNombre = new Map();
+        personas.forEach(p => {
+            const id = rut(p.rut), nombre = normalizar(p.nombre);
+            if (!porRut.has(id)) porRut.set(id, []);
+            porRut.get(id).push(p);
+            if (!porNombre.has(nombre)) porNombre.set(nombre, []);
+            porNombre.get(nombre).push(p);
+        });
+        return {porRut, porNombre};
+    }
+    function identificar(archivo, personas, catalogo = indice(personas)) {
+        if (archivo.asignacion) {
+            const id = rut(archivo.asignacion), candidatos = id ? catalogo.porRut.get(id) || [] : [];
+            return candidatos.length === 1 ? { rut: id, nombre: candidatos[0].nombre } :
+                { error: candidatos.length > 1 ? 'RUT repetido en nómina' : 'RUT no válido o fuera de nómina' };
+        }
+        const encontrados = [...String(archivo.name).matchAll(/(?:^|[^\d])(\d{1,2}\.\d{3}\.\d{3}-[0-9kK]|\d{7,8}-[0-9kK])(?=$|[^\da-zA-Z])/g)].map(m => m[1]);
+        if (encontrados.length) {
+            const ids = [...new Set(encontrados.map(rut))];
+            if (ids.length !== 1 || !ids[0]) return { error: 'RUT dudoso en el archivo' };
+            const c = catalogo.porRut.get(ids[0]) || [];
+            return c.length === 1 ? { rut: ids[0], nombre: c[0].nombre } :
+                { error: c.length > 1 ? 'RUT repetido en nómina' : 'RUT fuera de nómina' };
+        }
+        const nombre = nombreArchivo(archivo.name);
+        const c = catalogo.porNombre.get(nombre) || [];
+        return c.length === 1 && rut(c[0].rut) ? { rut: rut(c[0].rut), nombre: c[0].nombre } :
+            { error: c.length > 1 ? 'Nombre ambiguo: asigne el RUT' : 'Sin coincidencia: asigne el RUT' };
+    }
+    function agrupar(archivos, personas) {
+        const grupos = new Map(), catalogo = indice(personas);
+        archivos.forEach(a => {
+            const identidad = identificar(a, personas, catalogo);
+            const key = identidad.rut || 'sin:' + nombreArchivo(a.name);
+            if (!grupos.has(key)) grupos.set(key, { key, rut: identidad.rut || '', nombre: identidad.nombre || nombreArchivo(a.name),
+                remu: [], transp: [], problemas: [] });
+            const g = grupos.get(key);
+            g[a.tipo].push(a);
+            if (identidad.error) g.problemas.push(identidad.error);
+        });
+        return [...grupos.values()].map(g => {
+            if (g.remu.length > 1 || g.transp.length > 1) g.problemas.push('Archivos repetidos: deje uno por versión');
+            if (!g.remu.length) g.problemas.push('Falta remuneraciones');
+            if (!g.transp.length) g.problemas.push('Falta transparencia');
+            [...g.remu, ...g.transp].forEach(a => {
+                if (!/\.pdf$/i.test(a.name) || !Number(a.size) || Number(a.size) > 5 * 1024 * 1024) g.problemas.push('PDF inválido o mayor a 5 MB');
+                if (a.origen === 'local' && !a.disponible) g.problemas.push('Vuelva a seleccionar el archivo local');
+            });
+            const r = g.remu[0], t = g.transp[0];
+            if (r && t && ((r.origen === 'drive' && t.origen === 'drive' && r.id === t.id) ||
+                (r.md5Checksum && r.md5Checksum === t.md5Checksum))) g.problemas.push('Las dos versiones son el mismo PDF');
+            g.problemas = [...new Set(g.problemas)];
+            g.listo = !!g.rut && !g.problemas.length;
+            g.firma = JSON.stringify([...g.remu, ...g.transp].map(a => [a.key, a.name, a.size, a.version || a.lastModified || '', a.asignacion || '']));
+            return g;
+        }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    }
+    function csv(filas) {
+        const celda = v => '"' + (/^\s*[=+\-@]|^[\t\r]/.test(String(v || '')) ? "'" : '') + String(v || '').replace(/"/g, '""') + '"';
+        return '\uFEFF' + filas.map(f => f.map(celda).join(';')).join('\r\n');
+    }
+    return { rut, normalizar, identificar, agrupar, csv };
+})();
+</script>

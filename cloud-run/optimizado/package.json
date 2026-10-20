@@ -1,0 +1,17 @@
+{
+  "name": "muni-coquimbo-pdf-api",
+  "version": "2.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "googleapis": "^144.0.0",
+    "playwright": "1.58.2"
+  }
+}

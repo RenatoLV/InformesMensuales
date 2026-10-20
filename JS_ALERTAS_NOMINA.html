@@ -1,0 +1,32 @@
+<script>
+let alertaNominaEnCurso=false;
+async function ofrecerAlertaNomina(rut) {
+    if(tutorialActivo)return;
+    if(typeof Swal!=='undefined'){
+        const opcion=await Swal.fire({icon:'info',title:'RUT no encontrado en la nómina',
+            text:'El RUT es válido, pero no figura en la dotación del mes. Si lo desea, puede solicitar una revisión por correo a Renato Álvarez.',
+            showCancelButton:true,confirmButtonText:'Solicitar revisión',cancelButtonText:'Volver y revisar RUT'});
+        if(!opcion.isConfirmed)return;
+    }else if(!confirm('El RUT no figura en la nómina. ¿Desea solicitar una revisión por correo?'))return;
+    document.getElementById('alerta-nomina-form').reset();
+    document.getElementById('alerta-nomina-rut').value=rut;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalAlertaNomina')).show();
+}
+async function enviarAlertaNomina(event){
+    if(event)event.preventDefault();
+    if(tutorialActivo || alertaNominaEnCurso)return;
+    const form=document.getElementById('alerta-nomina-form');if(!form.reportValidity())return;
+    alertaNominaEnCurso=true;
+    const btn=document.getElementById('btnEnviarAlertaNomina');btn.disabled=true;btn.textContent='Enviando…';
+    try{
+        const res=await solicitarBackend('reportarRutNoEncontrado',{
+            rut:document.getElementById('alerta-nomina-rut').value,nombre:document.getElementById('alerta-nomina-nombre').value.trim(),
+            correo:document.getElementById('alerta-nomina-correo').value.trim(),unidad:document.getElementById('alerta-nomina-unidad').value.trim(),
+            detalle:document.getElementById('alerta-nomina-detalle').value.trim(),consentimiento:document.getElementById('alerta-nomina-consentimiento').checked});
+        if(!res.exito)throw new Error(res.error || 'No se confirmó el envío.');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalAlertaNomina')).hide();
+        alert(res.repetida?'Ya existe una alerta reciente para este RUT.':'Solicitud enviada a renato.alvarez@municoquimbo.cl. Se revisará su presencia en la nómina.');
+    }catch(error){alert('No se confirmó el envío: '+(error.message || String(error)));}
+    finally{alertaNominaEnCurso=false;btn.disabled=false;btn.textContent='Enviar solicitud';}
+}
+</script>

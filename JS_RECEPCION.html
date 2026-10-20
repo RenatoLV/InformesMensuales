@@ -1,0 +1,216 @@
+<script>
+(() => {
+    const $ = id => document.getElementById(id), M = RecepcionModelo;
+    const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+    const CLAVE = 'recepcion_masiva_v1';
+    let archivos = [], personas = [], resultados = {}, estados = {}, grupos = [];
+    let owner = '', listo = false, ocupado = false, pausa = false, loteId = nuevoId(), pagina = 0;
+    const locales = new Map();
+    function nuevoId() { return 'lote_' + crypto.randomUUID(); }
+    function rpc(fn, ...args) { return new Promise((ok, no) => google.script.run.withSuccessHandler(ok).withFailureHandler(no)[fn](...args)); }
+    function aviso(texto, error = false) { $('mensaje').textContent = texto; $('mensaje').classList.toggle('error', error); }
+    function periodo() { return { mes: $('mes-recepcion').value, anio: Number($('anio-recepcion').value) }; }
+    function guardar() {
+        try { sessionStorage.setItem(CLAVE, JSON.stringify({owner, loteId, periodo: periodo(), archivos, resultados})); }
+        catch (_) { aviso('No se pudo guardar el borrador de esta pestaña. Descargue el listado CSV antes de salir.', true); }
+    }
+    function invalidar() { $('revisado').checked = false; estados = {}; guardar(); dibujar(); }
+    function completado(g) { return resultados[g.rut]?.firma === g.firma && resultados[g.rut]?.exito; }
+    function procesable(g) { return g.listo && !completado(g) && !estados[g.rut]?.finalizado; }
+    function nodo(tag, texto, clase) {
+        const n = document.createElement(tag); if (texto !== undefined) n.textContent = texto; if (clase) n.className = clase; return n;
+    }
+    function cambiarOcupado(valor) { ocupado = valor; dibujar(); }
+    function dibujar() {
+        grupos = M.agrupar(archivos, personas);
+        $('total').textContent = grupos.length;
+        $('listos').textContent = grupos.filter(procesable).length;
+        $('pendientes').textContent = grupos.filter(g => !completado(g) && (!g.listo || resultados[g.rut]?.error)).length;
+        $('registrados').textContent = grupos.filter(completado).length;
+        document.querySelectorAll('input,select,button').forEach(el => { el.disabled = ocupado || !listo; });
+        $('pausar').disabled = !ocupado || pausa;
+        $('exportar').disabled = !archivos.length;
+        $('registrar').disabled = ocupado || !listo || !$('revisado').checked || !grupos.some(procesable);
+        const buscar = M.normalizar($('buscar-recepcion').value), filtro = $('filtro').value;
+        const filas = grupos.filter(g => (!buscar || M.normalizar(g.nombre + ' ' + g.rut).includes(buscar)) &&
+            (filtro === 'todos' || filtro === 'listos' && procesable(g) ||
+                filtro === 'registrados' && completado(g) || filtro === 'pendientes' && !completado(g) && (!g.listo || resultados[g.rut]?.error)));
+        const body = $('listado'); body.replaceChildren();
+        if (!filas.length) { const tr = nodo('tr'), td = nodo('td', archivos.length ? 'No hay resultados para este filtro.' : 'Seleccione sus dos grupos de PDF para preparar el listado.', 'empty'); td.colSpan = 4; tr.append(td); body.append(tr); }
+        pagina = Math.min(pagina, Math.max(0, Math.ceil(filas.length/100)-1));
+        $('pagina-anterior').disabled = ocupado || pagina === 0;
+        $('pagina-siguiente').disabled = ocupado || (pagina+1)*100 >= filas.length;
+        $('pagina-resumen').textContent = filas.length ? (pagina*100+1) + '–' + Math.min((pagina+1)*100,filas.length) + ' de ' + filas.length + ' filas' : '0 filas';
+        filas.slice(pagina*100,(pagina+1)*100).forEach(g => {
+            const tr = nodo('tr'), persona = nodo('td', undefined, 'persona');
+            persona.append(nodo('strong', g.nombre), nodo('small', g.rut || 'Identidad pendiente', 'muted'));
+            const asignar = nodo('div', undefined, 'assign'), input = nodo('input');
+            input.placeholder = 'RUT'; input.value = g.rut; input.setAttribute('list', 'personas-recepcion');
+            input.setAttribute('aria-label', 'RUT para ' + g.nombre);
+            input.disabled = ocupado || completado(g);
+            const btn = nodo('button', 'Asignar'); btn.disabled = input.disabled;
+            btn.onclick = () => {
+                const rut = M.rut(input.value);
+                if (!rut || personas.filter(p => M.rut(p.rut) === rut).length !== 1) return aviso('Seleccione un RUT único de la nómina.', true);
+                [...g.remu, ...g.transp].forEach(a => { a.asignacion = rut; });
+                invalidar();
+            };
+            asignar.append(input, btn); persona.append(asignar); tr.append(persona);
+            ['remu', 'transp'].forEach(tipo => {
+                const td = nodo('td', undefined, 'archivos');
+                td.setAttribute('data-label', tipo === 'remu' ? 'Remuneraciones' : 'Transparencia');
+                if (!g[tipo].length) td.append(nodo('span', 'Falta PDF', 'badge'));
+                g[tipo].forEach(a => {
+                    const wrap = nodo('div', undefined, 'file'), texto = nodo('span', a.name);
+                    texto.append(nodo('small', (a.origen === 'drive' ? 'Drive' : 'Computador') + ' · ' + (Number(a.size)/1024/1024).toFixed(2) + ' MB', 'muted'));
+                    const quitar = nodo('button', '×', 'remove'); quitar.setAttribute('aria-label', 'Quitar ' + a.name);
+                    quitar.disabled = ocupado || completado(g);
+                    quitar.onclick = () => { archivos = archivos.filter(x => x.key !== a.key); locales.delete(a.key); invalidar(); };
+                    wrap.append(texto, quitar); td.append(wrap);
+                }); tr.append(td);
+            });
+            const td = nodo('td'), res = resultados[g.rut];
+            td.setAttribute('data-label', 'Estado');
+            let texto = g.problemas.join('. ') || 'Par listo para revisar';
+            if (estados[g.rut]?.finalizado) texto = 'Ya entregado en este periodo. No se sustituirá.';
+            if (res?.firma === g.firma) texto = res.exito ? 'Registrado' : res.error || res.estado || texto;
+            td.append(nodo('span', texto, 'badge' + (completado(g) ? ' ok' : '')));
+            if (completado(g)) ['remu', 'transp'].forEach(tipo => {
+                if (/^https:\/\/drive\.google\.com\/file\/d\/[A-Za-z0-9_-]+\/view$/.test(res[tipo] || '')) {
+                    const a = nodo('a', tipo === 'remu' ? 'Ver remuneraciones' : 'Ver transparencia'); a.href = res[tipo]; a.target = '_blank'; a.rel = 'noopener noreferrer'; const small = nodo('small'); small.append(a); td.append(small);
+                }
+            });
+            tr.append(td); body.append(tr);
+        });
+    }
+    function agregar(nuevos) {
+        const mapa = new Map(archivos.map(a => [a.key, a]));
+        nuevos.forEach(a => mapa.set(a.key, {...mapa.get(a.key), ...a}));
+        if (mapa.size > 5000) throw new Error('El listado admite hasta 5.000 archivos. Separe la entrega en lotes.');
+        archivos = [...mapa.values()]; invalidar();
+    }
+    function seleccionarLocal(tipo, input) {
+        if (ocupado) return;
+        const nuevos = [...input.files].map(f => {
+            const key = JSON.stringify([tipo, f.name, f.size, f.lastModified]);
+            locales.set(key, f);
+            return {key, tipo, origen:'local', name:f.name, size:f.size, lastModified:f.lastModified, disponible:true};
+        });
+        try { agregar(nuevos); aviso('Archivos agregados. Revise las parejas y resuelva las observaciones antes de registrar.'); }
+        catch (e) { aviso(e.message, true); }
+        input.value = '';
+    }
+    async function leerDrive(tipo) {
+        if (ocupado) return;
+        cambiarOcupado(true); pausa = false;
+        const carpeta = $('drive-' + tipo).value.trim(), nuevos = [], tokens = new Set();
+        let pagina = '';
+        try {
+            do {
+                const respuesta = await rpc('listarCarpetaRecepcionMasiva', carpeta, pagina);
+                nuevos.push(...respuesta.archivos.map(a => ({...a, key:tipo + ':' + a.id, tipo, origen:'drive'})));
+                if (nuevos.length > 5000) throw new Error('La carpeta supera 5.000 PDF; divida la entrega.');
+                pagina = respuesta.siguiente;
+                if (pagina && tokens.has(pagina)) throw new Error('Drive repitió una página. Vuelva a leer la carpeta.');
+                tokens.add(pagina);
+                aviso('Leyendo carpeta: ' + nuevos.length + ' PDF encontrados…');
+            } while (pagina && !pausa);
+            if (pausa) aviso('Lectura cancelada. No se agregó una carpeta incompleta.');
+            else { agregar(nuevos); aviso('Carpeta leída: ' + nuevos.length + ' PDF. Se incluyen los PDF directamente dentro de ella, sin subcarpetas.'); }
+        } catch (e) { aviso(e.message || String(e), true); }
+        finally { pausa = false; cambiarOcupado(false); }
+    }
+    async function consultar() {
+        if (ocupado) return;
+        cambiarOcupado(true); pausa = false;
+        try {
+            const ruts = [...new Set(grupos.map(g => g.rut).filter(Boolean))];
+            if (ruts.length) estados = await rpc('consultarEstadoRecepcionMasiva', {...periodo(), ruts});
+            aviso('Estado mensual consultado. Los periodos ya entregados se excluyen de la carga.');
+        } catch (e) { aviso(e.message || String(e), true); }
+        finally { pausa = false; cambiarOcupado(false); }
+    }
+    async function payloadArchivo(a) {
+        if (a.origen === 'drive') return {origen:'drive', id:a.id, version:a.version};
+        const f = locales.get(a.key);
+        if (!f) throw new Error('Vuelva a seleccionar ' + a.name);
+        if (await f.slice(0,5).text() !== '%PDF-') throw new Error(a.name + ' no contiene una cabecera PDF válida.');
+        const base64 = await new Promise((ok,no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => no(new Error('No se pudo leer ' + a.name)); r.readAsDataURL(f); });
+        return {origen:'local', base64};
+    }
+    async function registrar() {
+        if (ocupado || !$('revisado').checked) return;
+        const pendientes = grupos.filter(procesable);
+        if (!pendientes.length) return;
+        if (!confirm('Se registrarán ' + pendientes.length + ' entregas completas para ' + periodo().mes + ' ' + periodo().anio + '. Los PDF de Drive se copiarán al archivo institucional. ¿Continuar?')) return;
+        cambiarOcupado(true); pausa = false;
+        $('avance').max = pendientes.length; $('avance').value = 0;
+        let finalizados = 0, errores = 0;
+        for (const g of pendientes) {
+            if (pausa) break;
+            resultados[g.rut] = {firma:g.firma, estado:'Registrando…'}; dibujar();
+            try {
+                const remu = await payloadArchivo(g.remu[0]), transp = await payloadArchivo(g.transp[0]);
+                // Solo se cargan a memoria los dos PDF de esta persona, nunca todo el lote.
+                const resultado = await rpc('registrarParRecepcionMasiva', {...periodo(), rut:g.rut, loteId, revisado:true, remu, transp});
+                if (!resultado?.exito) throw new Error('No se confirmó la entrega. Consulte el estado mensual antes de reintentar.');
+                resultados[g.rut] = {...resultado, firma:g.firma}; finalizados++;
+            } catch (e) {
+                resultados[g.rut] = {firma:g.firma, error: String(e.message || e)}; errores++;
+                // Una respuesta incierta no debe lanzar automáticamente la siguiente escritura.
+                pausa = true;
+            }
+            $('avance').value++; $('progreso').textContent = finalizados + ' registrados · ' + errores + ' con error';
+            guardar(); dibujar();
+        }
+        $('revisado').checked = false;
+        aviso(errores ? 'Carga pausada por un error. Consulte el estado mensual y revise la fila antes de reintentar; no vuelva a cargar todo el lote.' :
+            pausa ? 'Carga pausada después de la persona actual. Puede continuar con los pares pendientes.' : 'Pares listos registrados. Los incompletos permanecen en el listado.', !!errores);
+        pausa = false; cambiarOcupado(false);
+    }
+    function exportar() {
+        const filas = [['LOTE','MES','AÑO','RUT','NOMBRE','PDF REMUNERACIONES','PDF TRANSPARENCIA','ESTADO','LINK REMU','LINK TRANSP']];
+        grupos.forEach(g => {
+            const res = resultados[g.rut]?.firma === g.firma ? resultados[g.rut] : null;
+            filas.push([loteId,periodo().mes,periodo().anio,g.rut,g.nombre,g.remu.map(a=>a.name).join(' | '),g.transp.map(a=>a.name).join(' | '),
+                res?.exito ? 'REGISTRADO' : res?.error || (estados[g.rut]?.finalizado ? 'YA ENTREGADO' : g.problemas.join(' | ') || 'LISTO PARA REVISAR'),res?.remu,res?.transp]);
+        });
+        const url = URL.createObjectURL(new Blob([M.csv(filas)],{type:'text/csv;charset=utf-8'}));
+        const a = nodo('a'); a.href=url; a.download=loteId+'.csv'; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }
+    async function iniciar() {
+        MESES.forEach(m => { const o=nodo('option',m); o.value=m; $('mes-recepcion').append(o); });
+        try {
+            const catalogo = await rpc('obtenerCatalogoRecepcionMasiva');
+            owner=catalogo.email; personas=catalogo.personas;
+            [catalogo.anio,catalogo.anio-1].forEach(y=>{const o=nodo('option',String(y));o.value=y;$('anio-recepcion').append(o);});
+            $('mes-recepcion').value=MESES[catalogo.mes-1];
+            const opciones = document.createDocumentFragment();
+            personas.forEach(p => {const o=nodo('option',p.nombre);o.value=p.rut;opciones.append(o);});
+            $('personas-recepcion').append(opciones);
+            $('cuenta').textContent=owner+' · Nómina: '+catalogo.nomina;
+            let previo; try {previo=JSON.parse(sessionStorage.getItem(CLAVE));} catch(_) {}
+            if (previo?.owner === owner && Array.isArray(previo.archivos) && previo.archivos.length<=5000 && MESES.includes(previo.periodo?.mes) &&
+                [catalogo.anio,catalogo.anio-1].includes(Number(previo.periodo.anio))) {
+                archivos=previo.archivos.map(a=>({...a,disponible:false})); resultados=previo.resultados||{}; loteId=previo.loteId||nuevoId();
+                $('mes-recepcion').value=previo.periodo.mes; $('anio-recepcion').value=previo.periodo.anio;
+                aviso('Listado restaurado. Vuelva a seleccionar los PDF locales pendientes; consulte el estado mensual si una carga quedó interrumpida.');
+            } else aviso('Agregue remuneraciones y transparencia. Solo se registra cuando usted revisa y confirma los pares listos.');
+            listo=true;
+        } catch(e) { aviso(e.message||String(e),true); }
+        dibujar();
+    }
+    ['remu','transp'].forEach(t=>{$('local-'+t).onchange=e=>seleccionarLocal(t,e.target);$('leer-'+t).onclick=()=>leerDrive(t);});
+    $('filtro').onchange=()=>{pagina=0;dibujar();}; $('buscar-recepcion').oninput=()=>{pagina=0;dibujar();}; $('revisado').onchange=dibujar;
+    $('pagina-anterior').onclick=()=>{pagina--;dibujar();}; $('pagina-siguiente').onclick=()=>{pagina++;dibujar();};
+    $('registrar').onclick=registrar; $('consultar').onclick=consultar; $('exportar').onclick=exportar;
+    $('pausar').onclick=()=>{pausa=true;$('pausar').disabled=true;};
+    ['mes-recepcion','anio-recepcion'].forEach(id=>$(id).onchange=()=>{resultados={};invalidar();});
+    $('nuevo').onclick=()=>{
+        if (archivos.length && !confirm('¿Preparar un listado nuevo? Descargue primero el CSV si necesita conservar este listado. Las entregas registradas permanecen en el historial.')) return;
+        archivos=[];resultados={};locales.clear();loteId=nuevoId();$('progreso').textContent='';$('avance').value=0;invalidar();
+    };
+    window.addEventListener('beforeunload',e=>{if(ocupado){e.preventDefault();e.returnValue='';}});
+    iniciar();
+})();
+</script>
